@@ -36,6 +36,14 @@ pub fn open_cartridge(allocator: std.mem.Allocator, filename: []const u8) !Cartr
     };
 }
 
+pub fn read(cartridge: Cartridge, address: u16) u8 {
+    return cartridge.rom_data[address];
+}
+
+pub fn write(cartridge: Cartridge, address: u16, value: u8) void {
+    cartridge.rom_data[address] = value;
+}
+
 pub fn verifyChecksum(cartridge: Cartridge) bool {
     var x: u16 = 0;
     var i: u16 = 0x0134;
@@ -45,18 +53,46 @@ pub fn verifyChecksum(cartridge: Cartridge) bool {
     return (x & 0xFF) == (cartridge.header.checksum);
 }
 
+pub fn printData(cartridge: Cartridge, writer: anytype) !void {
+    var i: u32 = 0;
+    while (i < cartridge.rom_data.len) : (i += 16) {
+        try writer.print("0x{X:0>4}\t", .{i});
+        var j: u32 = i;
+        while (j < i + 8) : (j += 1) {
+            const data = cartridge.rom_data[j];
+            if (data == 0) {
+                try writer.print(".. ", .{});
+            } else {
+                try writer.print("{X:0>2} ", .{data});
+            }
+        }
+        try writer.print("  ", .{});
+        while (j < i + 16) : (j += 1) {
+            const data = cartridge.rom_data[j];
+            if (data == 0) {
+                try writer.print(".. ", .{});
+            } else {
+                try writer.print("{X:0>2} ", .{data});
+            }
+        }
+
+        try writer.print("\n", .{});
+    }
+}
+
 pub fn print(cartridge: Cartridge, writer: anytype) !void {
     const header = cartridge.header;
     try writer.print("Cartridge info:\n", .{});
-    try writer.print("\tTitle:         {s}\n", .{header.title});
-    try writer.print("\tCGB Flag:      {X:0>2} ({s})\n", .{ header.cgb_flag, cgbFlagToString(header.cgb_flag) });
-    try writer.print("\tType:          {X:0>2} ({s})\n", .{ header.type, romTypeAsString(header.type) });
-    try writer.print("\tROM Size:      {} kB\n", .{@as(u64, 32) << @intCast(header.rom_size)});
-    try writer.print("\tRAM Size:      {X:0>2}\n", .{header.ram_size});
-    try writer.print("\tDestination:   {X:0>2}\n", .{header.destination_code});
-    try writer.print("\tLicensee Code: {X:0>2} {X:0>4} ({s})\n", .{ header.licensee_code, header.new_licensee_code, licenseeCodeAsString(header.licensee_code, header.new_licensee_code) });
-    try writer.print("\tROM Version:   {X:0>2}\n", .{header.version});
-    try writer.print("\tChecksum:      {X:0>2} ({s})\n", .{ header.checksum, if (cartridge.verifyChecksum()) "PASSED" else "FAILED" });
+    try writer.print("        Title:         {s}\n", .{header.title});
+    try writer.print("        CGB Flag:      0x{X:0>2} ({s})\n", .{ header.cgb_flag, cgbFlagToString(header.cgb_flag) });
+    try writer.print("        Type:          0x{X:0>2} ({s})\n", .{ header.type, romTypeAsString(header.type) });
+    try writer.print("        ROM Size:      {} kB\n", .{@as(u64, 32) << @intCast(header.rom_size)});
+    try writer.print("        RAM Size:      0x{X:0>2}\n", .{header.ram_size});
+    try writer.print("        Destination:   0x{X:0>2}\n", .{header.destination_code});
+    try writer.print("        Licensee Code: 0x{X:0>2} 0x{X:0>4} ({s})\n", .{ header.licensee_code, header.new_licensee_code, licenseeCodeAsString(header.licensee_code, header.new_licensee_code) });
+    try writer.print("        ROM Version:   0x{X:0>2}\n", .{header.version});
+    try writer.print("        Checksum:      0x{X:0>2} ({s})\n", .{ header.checksum, if (cartridge.verifyChecksum()) "PASSED" else "FAILED" });
+    try writer.print("\n", .{});
 }
 
 fn cgbFlagToString(cgb_flag: u8) []const u8 {
