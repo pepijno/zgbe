@@ -1,6 +1,7 @@
 const std = @import("std");
+const raylib_build = @import("raylib");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
 
     const optimize = b.standardOptimizeOption(.{});
@@ -12,6 +13,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const raylib_dep = b.dependency("raylib", .{
+        .target = target,
+        .optimize = optimize,
+        .linux_display_backend = .X11,
+    });
+    const raylib = raylib_dep.artifact("raylib");
+
+    exe.linkLibrary(raylib);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

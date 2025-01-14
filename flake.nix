@@ -15,6 +15,15 @@
           gf
           zig
           zls
+          xorg.libX11
+          xorg.libXft
+          xorg.libXcursor
+          xorg.libXext
+          xorg.libXfixes
+          xorg.libXrandr
+          xorg.libXinerama
+          xorg.libXi
+          libGL
         ];
       in
       rec {
