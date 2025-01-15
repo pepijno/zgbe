@@ -62,6 +62,7 @@ pub fn read16(bus: Bus, address: u16) u16 {
 
 pub fn write8(bus: *Bus, address: u16, value: u8) void {
     switch (address) {
+        0x0000...0x7FFF => bus.cartridge.write(address, value),
         0x8000...0x9FFF => bus.vram[address - 0x8000] = value,
         0xA000...0xBFFF => bus.ext_ram[address - 0x000] = value,
         0xC000...0xDFFF => bus.wram[address - 0xC000] = value,

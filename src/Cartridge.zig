@@ -2,7 +2,7 @@ const Cartridge = @This();
 
 const std = @import("std");
 
-rom_data: []const u8,
+rom_data: []u8,
 header: RomHeader,
 
 pub const RomHeader = extern struct {

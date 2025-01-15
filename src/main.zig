@@ -23,7 +23,12 @@ pub fn main() !void {
     var boot_rom: [0x100]u8 = std.mem.zeroes([0x100]u8);
     _ = try file.read(&boot_rom);
 
-    var cartridge = try Cartridge.open_cartridge(allocator, "02-interrupts.gb");
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    const file_name = if (args.len < 2) "roms/cpu_instrs.gb" else args[1];
+
+    var cartridge = try Cartridge.open_cartridge(allocator, file_name);
     // try cartridge.print(stdout);
 
     var interrupt = Interrupt{};

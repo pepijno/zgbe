@@ -274,13 +274,13 @@ fn adda(cpu: *Cpu, value: u8) void {
 }
 
 fn adca(cpu: *Cpu, value: u8) void {
-    const result: u8 = value +% @as(u8, if (cpu.af.bit8.carry_flag) 1 else 0);
-    const ress = @as(u16, cpu.af.bit8.a) + @as(u16, result);
+    const carry_bit: u8 = if (cpu.af.bit8.carry_flag) 1 else 0;
+    const result = @as(u16, cpu.af.bit8.a) + @as(u16, value) + @as(u16, carry_bit);
 
-    cpu.af.bit8.carry_flag = (ress & 0xFF00) != 0;
-    cpu.af.bit8.half_carry_flag = ((cpu.af.bit8.a & 0xF) + (result & 0xF)) > 0xF;
+    cpu.af.bit8.carry_flag = (result & 0xFF00) != 0;
+    cpu.af.bit8.half_carry_flag = ((cpu.af.bit8.a & 0xF) + (value & 0xF) + carry_bit) > 0xF;
 
-    cpu.af.bit8.a = @truncate(ress & 0xFF);
+    cpu.af.bit8.a = @truncate(result & 0xFF);
 
     cpu.af.bit8.zero_flag = cpu.af.bit8.a == 0;
     cpu.af.bit8.subtraction_flag = false;
@@ -298,16 +298,16 @@ fn suba(cpu: *Cpu, value: u8) void {
 }
 
 fn sbca(cpu: *Cpu, value: u8) void {
-    const result: u8 = value +% @as(u8, if (cpu.af.bit8.carry_flag) 1 else 0);
-    cpu.af.bit8.subtraction_flag = true;
+    const carry_bit: u8 = if (cpu.af.bit8.carry_flag) 1 else 0;
+    const result = cpu.af.bit8.a -% value -% carry_bit;
 
-    cpu.af.bit8.carry_flag = result > cpu.af.bit8.a;
+    cpu.af.bit8.carry_flag = @as(u16, value) + @as(u16, carry_bit) > @as(u16, cpu.af.bit8.a);
+    cpu.af.bit8.half_carry_flag = ((@as(u16, value) & 0xF) + (@as(u16, carry_bit) & 0xF)) > (cpu.af.bit8.a & 0xF);
 
-    cpu.af.bit8.half_carry_flag = (result & 0xF) > (cpu.af.bit8.a & 0xF);
-
-    cpu.af.bit8.a -%= result;
+    cpu.af.bit8.a = result;
 
     cpu.af.bit8.zero_flag = cpu.af.bit8.a == 0;
+    cpu.af.bit8.subtraction_flag = true;
 }
 
 fn anda(cpu: *Cpu, value: u8) void {
@@ -669,6 +669,8 @@ fn runInstruction(cpu: *Cpu, bus: *Bus, opcode: u8) u8 {
             return 3;
         },
         0x37 => {
+            cpu.af.bit8.half_carry_flag = false;
+            cpu.af.bit8.subtraction_flag = false;
             cpu.af.bit8.carry_flag = true;
             return 1;
         },
@@ -1317,7 +1319,7 @@ fn runInstruction(cpu: *Cpu, bus: *Bus, opcode: u8) u8 {
         0xCA => {
             const operand = cpu.readU16(bus.*);
             if (cpu.af.bit8.zero_flag) {
-                cpu.program_counter +%= operand;
+                cpu.program_counter = operand;
                 cpu.debugJump();
                 return 4;
             } else {
@@ -1423,7 +1425,7 @@ fn runInstruction(cpu: *Cpu, bus: *Bus, opcode: u8) u8 {
         0xDA => {
             const operand = cpu.readU16(bus.*);
             if (cpu.af.bit8.carry_flag) {
-                cpu.program_counter += operand;
+                cpu.program_counter = operand;
                 cpu.debugJump();
                 return 4;
             } else {
@@ -1479,13 +1481,20 @@ fn runInstruction(cpu: *Cpu, bus: *Bus, opcode: u8) u8 {
         },
 
         0xE8 => {
-            const operand = cpu.readU8(bus.*);
-            const result = @as(u32, cpu.stack_pointer) + @as(u32, operand);
-            cpu.af.bit8.carry_flag = (result & 0xFFFF0000) != 0;
+            const value: i8 = @bitCast(cpu.readU8(bus.*));
+            var result = cpu.stack_pointer;
+            if (value < 0) {
+                result -%= @abs(value);
+                cpu.af.bit8.carry_flag = (result & 0xFF) <= (cpu.stack_pointer & 0xFF);
+                cpu.af.bit8.half_carry_flag = (result & 0xF) <= (cpu.stack_pointer & 0xF);
+            } else {
+                result +%= @intCast(value);
+                cpu.af.bit8.carry_flag = ((cpu.stack_pointer & 0xFF) + @abs(value)) > 0xFF;
+                cpu.af.bit8.half_carry_flag = ((cpu.stack_pointer & 0xF) + (@abs(value) & 0xF)) > 0xF;
+            }
 
-            cpu.stack_pointer = @truncate(result & 0xFFFF);
+            cpu.stack_pointer = result;
 
-            cpu.af.bit8.half_carry_flag = ((cpu.stack_pointer & 0xF) + (operand & 0xF)) > 0xF;
             cpu.af.bit8.zero_flag = false;
             cpu.af.bit8.subtraction_flag = false;
             return 4;
@@ -1681,7 +1690,7 @@ fn srl(cpu: *Cpu, value: *u8) void {
 }
 
 fn bit(cpu: *Cpu, b: u3, value: u8) void {
-    cpu.af.bit8.zero_flag = (value & (@as(u8, 1) << b)) != 0;
+    cpu.af.bit8.zero_flag = (value & (@as(u8, 1) << b)) == 0;
     cpu.af.bit8.half_carry_flag = true;
     cpu.af.bit8.subtraction_flag = false;
 }
