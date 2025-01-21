@@ -36,15 +36,15 @@ pub fn open_cartridge(allocator: std.mem.Allocator, filename: []const u8) !Cartr
     };
 }
 
-pub fn read(cartridge: Cartridge, address: u16) u8 {
+pub fn read(cartridge: *const Cartridge, address: u16) u8 {
     return cartridge.rom_data[address];
 }
 
-pub fn write(cartridge: Cartridge, address: u16, value: u8) void {
+pub fn write(cartridge: *Cartridge, address: u16, value: u8) void {
     cartridge.rom_data[address] = value;
 }
 
-pub fn verifyChecksum(cartridge: Cartridge) bool {
+pub fn verifyChecksum(cartridge: *const Cartridge) bool {
     var x: u16 = 0;
     var i: u16 = 0x0134;
     while (i <= 0x014C) : (i += 1) {
@@ -53,7 +53,7 @@ pub fn verifyChecksum(cartridge: Cartridge) bool {
     return (x & 0xFF) == (cartridge.header.checksum);
 }
 
-pub fn printData(cartridge: Cartridge, writer: anytype) !void {
+pub fn printData(cartridge: *const Cartridge, writer: anytype) !void {
     var i: u32 = 0;
     while (i < cartridge.rom_data.len) : (i += 16) {
         try writer.print("0x{X:0>4}\t", .{i});
@@ -80,7 +80,7 @@ pub fn printData(cartridge: Cartridge, writer: anytype) !void {
     }
 }
 
-pub fn print(cartridge: Cartridge, writer: anytype) !void {
+pub fn print(cartridge: *const Cartridge, writer: anytype) !void {
     const header = cartridge.header;
     try writer.print("Cartridge info:\n", .{});
     try writer.print("        Title:         {s}\n", .{header.title});

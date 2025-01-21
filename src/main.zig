@@ -3,10 +3,89 @@ const raylib = @import("raylib.zig");
 
 const Bus = @import("Bus.zig");
 const Cartridge = @import("Cartridge.zig");
-const Cpu = @import("Cpu.zig");
+const CPU = @import("CPU.zig");
+const Dma = @import("Dma.zig");
 const Gamepad = @import("Gamepad.zig");
 const Interrupt = @import("Interrupt.zig");
+const LCD = @import("LCD.zig");
+const PPU = @import("PPU.zig");
 const Timer = @import("Timer.zig");
+
+fn drawTile(bus: *Bus, scale: u32, address: u16, tile_num: u16, x: u32, y: u32) void {
+    var tile_y: u16 = 0;
+    while (tile_y < 16) : (tile_y += 2) {
+        const b1: u8 = bus.read8(address + tile_num * 16 + tile_y);
+        const b2: u8 = bus.read8(address + tile_num * 16 + tile_y + 1);
+
+        for (0..8) |bit| {
+            const bit_: u3 = @truncate(bit);
+            const hi_set: u1 = @bitCast((b1 & (@as(u8, 1) << bit_)) != 0);
+            const lo_set: u1 = @bitCast((b2 & (@as(u8, 1) << bit_)) != 0);
+            const hi = @as(u2, hi_set) << 1;
+            const lo = @as(u2, lo_set);
+
+            const color_idx = hi | lo;
+            const color = PPU.default_colors[color_idx];
+
+            const pos_x = x + (7 - bit_) * scale;
+            const pos_y = y + (tile_y / 2) * scale;
+            raylib.DrawRectangle(@intCast(pos_x), @intCast(pos_y), @intCast(scale), @intCast(scale), raylib.GetColor(color));
+        }
+    }
+}
+
+fn updateDebugWindow(bus: *Bus, start_x: u32, scale: u32) void {
+    const address: u16 = 0x8000;
+    var x_draw: u32 = start_x;
+    var y_draw: u32 = 0;
+    var tile_num: u16 = 0;
+
+    for (0..24) |_| {
+        for (0..16) |_| {
+            drawTile(bus, scale, address, tile_num, x_draw, y_draw);
+            x_draw += (8 * scale + 1);
+            tile_num += 1;
+        }
+        y_draw += 8 * scale + 1;
+        x_draw = start_x;
+    }
+}
+
+fn updateWindow(ppu: *const PPU, scale: u32) void {
+    for (0..144) |y| {
+        for (0..160) |x| {
+            const x_draw = scale * x;
+            const y_draw = scale * y;
+            const color = ppu.pixel_buffers[ppu.buffer_read_index][160 * y + x];
+            // std.debug.print("{}\n", .{color});
+            raylib.DrawRectangle(@intCast(x_draw), @intCast(y_draw), @intCast(scale), @intCast(scale), raylib.GetColor(color));
+        }
+    }
+}
+
+fn cpuRun(cpu: *CPU, interrupt: *Interrupt, bus: *Bus) void {
+    cpu.halted = false;
+    cpu.running = true;
+
+    // var bla = false;
+
+    while (cpu.running) {
+        // if (cpu.af.bit8.a == 0x90 or bla) {
+        // if (!cpu.halted) {
+        //     cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
+        // }
+        //     bla = true;
+        // }
+
+        cpu.tick(bus);
+        interrupt.tick(bus);
+
+        if (bus.read8(0xFF02) == 0x81) {
+            std.debug.print("{c}", .{bus.read8(0xFF01)});
+            bus.write8(0xFF02, 0x0);
+        }
+    }
+}
 
 pub fn main() !void {
     const stdout_file = std.io.getStdOut().writer();
@@ -30,34 +109,44 @@ pub fn main() !void {
 
     var cartridge = try Cartridge.open_cartridge(allocator, file_name);
     // try cartridge.print(stdout);
+    // try cartridge.printData(stdout);
+    // try bw.flush();
 
     var interrupt = Interrupt{};
-    var cpu = Cpu.initAfterBoot();
+    var cpu = CPU.initAfterBoot();
     // cvar gamepad = Gamepad{};
     var timer = Timer.initAfterBoot();
+    var dma = Dma{};
+    var lcd = LCD{ .dma = &dma };
+    var ppu = PPU.init(&lcd);
     var bus = Bus{
         .boot_rom = boot_rom,
         .dmg_boot_rom = 1,
         .interrupt = &interrupt,
         .cartridge = &cartridge,
         .cpu = &cpu,
+        .ppu = &ppu,
         .timer = &timer,
+        .lcd = &lcd,
+        .dma = &dma,
     };
 
-    // const screen_width = 800;
-    // const screen_height = 450;
+    const scale = 4;
+    const debug_scale = 2;
+    const screen_width = 20 * 8 * scale + 20 + 16 * (8 + 1) * debug_scale;
+    const screen_height = 18 * 8 * scale;
 
-    // raylib.InitWindow(screen_width, screen_height, "raylib [core] example - basic window");
-    // defer raylib.CloseWindow(); // Close window and OpenGL context
+    raylib.InitWindow(screen_width, screen_height, "raylib [core] example - basic window");
+    defer raylib.CloseWindow(); // Close window and OpenGL context
+    raylib.SetTargetFPS(60);
 
     var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();
 
-    var i: u8 = 0;
-    cpu.running = true;
-    try cpu.printState(bus, stdout);
-    while (true) : (i += 1)
-    // while (!raylib.WindowShouldClose()) // Detect window close button or ESC key
+    _ = try std.Thread.spawn(.{}, cpuRun, .{ &cpu, &interrupt, &bus });
+
+    // while (true)
+    while (!raylib.WindowShouldClose()) // Detect window close button or ESC key
     {
         // Update
         //----------------------------------------------------------------------------------
@@ -66,44 +155,23 @@ pub fn main() !void {
         //     gamepad.data.keys.right = true;
         // }
 
-        const m_cycles_interrupt = interrupt.tick(&bus);
-        const m_cycles_cpu = cpu.tick(&bus);
-        for (0..(m_cycles_interrupt + m_cycles_cpu)) |_| {
-            for (0..4) |_| {
-                timer.tick(&bus);
-            }
-        }
-
-        // if (!cpu.halted) {
-        //     try cpu.printState(bus, stdout);
-        // }
-
-        if (bus.read8(0xFF02) == 0x81) {
-            try stdout.print("{c}", .{bus.read8(0xFF01)});
-            try buffer.append(bus.read8(0xFF01));
-            bus.write8(0xFF02, 0x0);
-        }
-
         // Draw
         //----------------------------------------------------------------------------------
-        // raylib.BeginDrawing();
-        // defer raylib.EndDrawing();
-        //
-        // raylib.ClearBackground(raylib.RAYWHITE);
-        // raylib.DrawText("Congrats! You created your first window!", 190, 200, 20, raylib.LIGHTGRAY);
-        //----------------------------------------------------------------------------------
+        raylib.BeginDrawing();
+        defer raylib.EndDrawing();
 
-        if (i == 100) {
-            i = 0;
-            try bw.flush();
-        }
-        //
-        // if (cpu.program_counter == 0x100) {
-        //     break;
-        // }
+        raylib.ClearBackground(raylib.RAYWHITE);
+        updateWindow(&ppu, scale);
+        updateDebugWindow(&bus, 20 * 8 * scale + 20, debug_scale);
+        raylib.DrawFPS(10, 10);
+        //----------------------------------------------------------------------------------
     }
 
     try stdout.print("{s}\n", .{buffer.items});
 
     try bw.flush();
+}
+
+test {
+    _ = @import("Timer.zig");
 }

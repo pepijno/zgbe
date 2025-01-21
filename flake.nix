@@ -15,6 +15,7 @@
           gf
           zig
           zls
+          linuxKernel.packages.linux_zen.perf
           xorg.libX11
           xorg.libXft
           xorg.libXcursor
