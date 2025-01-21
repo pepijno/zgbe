@@ -1156,7 +1156,8 @@ fn runInstruction(cpu: *CPU, bus: *Bus, opcode: u8) void {
         0xCB => {
             const prefix = cpu.readU8(bus);
             bus.tick(1);
-            cpu.runPrefixInstruction(bus, prefix);
+            const instruction = prefixInstructions[prefix];
+            instruction(cpu, bus);
         },
         0xCC => {
             const operand = cpu.readU16(bus);
@@ -1428,1016 +1429,440 @@ fn runInstruction(cpu: *CPU, bus: *Bus, opcode: u8) void {
     }
 }
 
-fn rlc(cpu: *CPU, value: *u8) void {
-    const carry: u8 = (value.* & 0x80) >> 7;
+const InstructionRegister = enum {
+    A,
+    B,
+    C,
+    D,
+    E,
+    H,
+    L,
+    HL,
+};
 
-    cpu.af.bit8.carry_flag = (value.* & 0x80) != 0;
+const PrefixInstructionType = struct {
+    reg: InstructionRegister,
+    type: union(enum) {
+        RLC: void,
+        RRC: void,
+        RL: void,
+        RR: void,
+        SLA: void,
+        SRA: void,
+        SWAP: void,
+        SRL: void,
+        BIT: u3,
+        RES: u3,
+        SET: u3,
+    },
+};
 
-    value.* = value.* << 1;
-    value.* +%= carry;
+fn createPrefixInstruction(comptime instructionType: PrefixInstructionType) *const fn (cpu: *CPU, bus: *Bus) void {
+    return struct {
+        fn instruction(cpu: *CPU, bus: *Bus) void {
+            var reg_value: *u8 = switch (comptime instructionType.reg) {
+                .A => &cpu.af.bit8.a,
+                .B => &cpu.bc.bit8.b,
+                .C => &cpu.bc.bit8.c,
+                .D => &cpu.de.bit8.d,
+                .E => &cpu.de.bit8.e,
+                .H => &cpu.hl.bit8.h,
+                .L => &cpu.hl.bit8.l,
+                .HL => &cpu.hl.bit8.l,
+            };
+            if (instructionType.reg == .HL) {
+                var value = bus.read8(cpu.hl.bit16);
+                bus.tick(1);
+                reg_value = &value;
+            }
+            switch (comptime instructionType.type) {
+                .RLC => {
+                    const carry: u8 = (reg_value.* & 0x80) >> 7;
 
-    cpu.af.bit8.zero_flag = value.* == 0;
-    cpu.af.bit8.half_carry_flag = false;
-    cpu.af.bit8.subtraction_flag = false;
+                    cpu.af.bit8.carry_flag = (reg_value.* & 0x80) != 0;
+
+                    reg_value.* = reg_value.* << 1;
+                    reg_value.* +%= carry;
+
+                    cpu.af.bit8.zero_flag = reg_value.* == 0;
+                    cpu.af.bit8.half_carry_flag = false;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .RRC => {
+                    const carry = reg_value.* & 0x1;
+
+                    reg_value.* = reg_value.* >> 1;
+
+                    if (carry == 1) {
+                        cpu.af.bit8.carry_flag = true;
+                        reg_value.* |= 0x80;
+                    } else {
+                        cpu.af.bit8.carry_flag = false;
+                    }
+
+                    cpu.af.bit8.zero_flag = reg_value.* == 0;
+                    cpu.af.bit8.half_carry_flag = false;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .RL => {
+                    const carry: u8 = if (cpu.af.bit8.carry_flag) 1 else 0;
+
+                    cpu.af.bit8.carry_flag = (reg_value.* & 0x80) != 0;
+
+                    reg_value.* = reg_value.* << 1;
+                    reg_value.* +%= carry;
+
+                    cpu.af.bit8.zero_flag = reg_value.* == 0;
+                    cpu.af.bit8.half_carry_flag = false;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .RR => {
+                    const old_value = reg_value.*;
+                    reg_value.* = reg_value.* >> 1;
+
+                    if (cpu.af.bit8.carry_flag) {
+                        reg_value.* |= 0x80;
+                    }
+                    cpu.af.bit8.carry_flag = (old_value & 0x1) != 0;
+
+                    cpu.af.bit8.zero_flag = reg_value.* == 0;
+                    cpu.af.bit8.half_carry_flag = false;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .SLA => {
+                    cpu.af.bit8.carry_flag = (reg_value.* & 0x80) != 0;
+                    reg_value.* = reg_value.* << 1;
+                    cpu.af.bit8.zero_flag = reg_value.* == 0;
+                    cpu.af.bit8.half_carry_flag = false;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .SRA => {
+                    cpu.af.bit8.carry_flag = (reg_value.* & 0x1) != 0;
+                    reg_value.* = (reg_value.* >> 1) | (reg_value.* & 0x80);
+                    cpu.af.bit8.zero_flag = reg_value.* == 0;
+                    cpu.af.bit8.half_carry_flag = false;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .SWAP => {
+                    reg_value.* = ((reg_value.* & 0xF) << 4) | ((reg_value.* & 0xF0) >> 4);
+                    cpu.af.bit8.zero_flag = reg_value.* == 0;
+                    cpu.af.bit8.carry_flag = false;
+                    cpu.af.bit8.half_carry_flag = false;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .SRL => {
+                    cpu.af.bit8.carry_flag = (reg_value.* & 0x1) != 0;
+                    reg_value.* = reg_value.* >> 1;
+                    cpu.af.bit8.zero_flag = reg_value.* == 0;
+                    cpu.af.bit8.half_carry_flag = false;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .BIT => |b| {
+                    cpu.af.bit8.zero_flag = (reg_value.* & (@as(u8, 1) << b)) == 0;
+                    cpu.af.bit8.half_carry_flag = true;
+                    cpu.af.bit8.subtraction_flag = false;
+                },
+                .RES => |b| {
+                    reg_value.* &= ~(@as(u8, 1) << b);
+                },
+                .SET => |b| {
+                    reg_value.* |= (@as(u8, 1) << b);
+                },
+            }
+            if (instructionType.reg == .HL and instructionType.type != .BIT) {
+                bus.write8(cpu.hl.bit16, reg_value.*);
+                bus.tick(1);
+            }
+        }
+    }.instruction;
 }
 
-fn rrc(cpu: *CPU, value: *u8) void {
-    const carry = value.* & 0x1;
+const prefixInstructions = [256]*const fn (cpu: *CPU, bus: *Bus) void{
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RLC = {} } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RLC = {} } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RLC = {} } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RLC = {} } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RLC = {} } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RLC = {} } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RLC = {} } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RLC = {} } }),
 
-    value.* = value.* >> 1;
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RRC = {} } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RRC = {} } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RRC = {} } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RRC = {} } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RRC = {} } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RRC = {} } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RRC = {} } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RRC = {} } }),
 
-    if (carry == 1) {
-        cpu.af.bit8.carry_flag = true;
-        value.* |= 0x80;
-    } else {
-        cpu.af.bit8.carry_flag = false;
-    }
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RL = {} } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RL = {} } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RL = {} } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RL = {} } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RL = {} } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RL = {} } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RL = {} } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RL = {} } }),
 
-    cpu.af.bit8.zero_flag = value.* == 0;
-    cpu.af.bit8.half_carry_flag = false;
-    cpu.af.bit8.subtraction_flag = false;
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RR = {} } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RR = {} } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RR = {} } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RR = {} } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RR = {} } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RR = {} } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RR = {} } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RR = {} } }),
 
-fn rl(cpu: *CPU, value: *u8) void {
-    const carry: u8 = if (cpu.af.bit8.carry_flag) 1 else 0;
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SLA = {} } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SLA = {} } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SLA = {} } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SLA = {} } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SLA = {} } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SLA = {} } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SLA = {} } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SLA = {} } }),
 
-    cpu.af.bit8.carry_flag = (value.* & 0x80) != 0;
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SRA = {} } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SRA = {} } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SRA = {} } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SRA = {} } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SRA = {} } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SRA = {} } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SRA = {} } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SRA = {} } }),
 
-    value.* = value.* << 1;
-    value.* +%= carry;
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SWAP = {} } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SWAP = {} } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SWAP = {} } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SWAP = {} } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SWAP = {} } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SWAP = {} } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SWAP = {} } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SWAP = {} } }),
 
-    cpu.af.bit8.zero_flag = value.* == 0;
-    cpu.af.bit8.half_carry_flag = false;
-    cpu.af.bit8.subtraction_flag = false;
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SRL = {} } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SRL = {} } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SRL = {} } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SRL = {} } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SRL = {} } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SRL = {} } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SRL = {} } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SRL = {} } }),
 
-fn rr(cpu: *CPU, value: *u8) void {
-    const old_value = value.*;
-    value.* = value.* >> 1;
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .BIT = 0 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .BIT = 0 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .BIT = 0 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .BIT = 0 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .BIT = 0 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .BIT = 0 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .BIT = 0 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .BIT = 0 } }),
 
-    if (cpu.af.bit8.carry_flag) {
-        value.* |= 0x80;
-    }
-    cpu.af.bit8.carry_flag = (old_value & 0x1) != 0;
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .BIT = 1 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .BIT = 1 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .BIT = 1 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .BIT = 1 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .BIT = 1 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .BIT = 1 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .BIT = 1 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .BIT = 1 } }),
 
-    cpu.af.bit8.zero_flag = value.* == 0;
-    cpu.af.bit8.half_carry_flag = false;
-    cpu.af.bit8.subtraction_flag = false;
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .BIT = 2 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .BIT = 2 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .BIT = 2 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .BIT = 2 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .BIT = 2 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .BIT = 2 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .BIT = 2 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .BIT = 2 } }),
 
-fn sla(cpu: *CPU, value: *u8) void {
-    cpu.af.bit8.carry_flag = (value.* & 0x80) != 0;
-    value.* = value.* << 1;
-    cpu.af.bit8.zero_flag = value.* == 0;
-    cpu.af.bit8.half_carry_flag = false;
-    cpu.af.bit8.subtraction_flag = false;
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .BIT = 3 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .BIT = 3 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .BIT = 3 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .BIT = 3 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .BIT = 3 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .BIT = 3 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .BIT = 3 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .BIT = 3 } }),
 
-fn sra(cpu: *CPU, value: *u8) void {
-    cpu.af.bit8.carry_flag = (value.* & 0x1) != 0;
-    value.* = (value.* >> 1) | (value.* & 0x80);
-    cpu.af.bit8.zero_flag = value.* == 0;
-    cpu.af.bit8.half_carry_flag = false;
-    cpu.af.bit8.subtraction_flag = false;
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .BIT = 4 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .BIT = 4 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .BIT = 4 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .BIT = 4 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .BIT = 4 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .BIT = 4 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .BIT = 4 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .BIT = 4 } }),
 
-fn swap(cpu: *CPU, value: *u8) void {
-    value.* = ((value.* & 0xF) << 4) | ((value.* & 0xF0) >> 4);
-    cpu.af.bit8.zero_flag = value.* == 0;
-    cpu.af.bit8.carry_flag = false;
-    cpu.af.bit8.half_carry_flag = false;
-    cpu.af.bit8.subtraction_flag = false;
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .BIT = 5 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .BIT = 5 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .BIT = 5 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .BIT = 5 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .BIT = 5 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .BIT = 5 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .BIT = 5 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .BIT = 5 } }),
 
-fn srl(cpu: *CPU, value: *u8) void {
-    cpu.af.bit8.carry_flag = (value.* & 0x1) != 0;
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .BIT = 6 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .BIT = 6 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .BIT = 6 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .BIT = 6 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .BIT = 6 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .BIT = 6 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .BIT = 6 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .BIT = 6 } }),
 
-    value.* = value.* >> 1;
-    cpu.af.bit8.zero_flag = value.* == 0;
-    cpu.af.bit8.half_carry_flag = false;
-    cpu.af.bit8.subtraction_flag = false;
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .BIT = 7 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .BIT = 7 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .BIT = 7 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .BIT = 7 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .BIT = 7 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .BIT = 7 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .BIT = 7 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .BIT = 7 } }),
 
-fn bit(cpu: *CPU, b: u3, value: u8) void {
-    cpu.af.bit8.zero_flag = (value & (@as(u8, 1) << b)) == 0;
-    cpu.af.bit8.half_carry_flag = true;
-    cpu.af.bit8.subtraction_flag = false;
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RES = 0 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RES = 0 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RES = 0 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RES = 0 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RES = 0 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RES = 0 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RES = 0 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RES = 0 } }),
 
-fn res(cpu: *CPU, b: u3, value: *u8) void {
-    _ = cpu;
-    value.* &= ~(@as(u8, 1) << b);
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RES = 1 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RES = 1 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RES = 1 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RES = 1 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RES = 1 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RES = 1 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RES = 1 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RES = 1 } }),
 
-fn set(cpu: *CPU, b: u3, value: *u8) void {
-    _ = cpu;
-    value.* |= (@as(u8, 1) << b);
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RES = 2 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RES = 2 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RES = 2 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RES = 2 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RES = 2 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RES = 2 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RES = 2 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RES = 2 } }),
 
-fn runPrefixInstruction(cpu: *CPU, bus: *Bus, opcode: u8) void {
-    switch (opcode) {
-        0x00 => {
-            cpu.rlc(&cpu.bc.bit8.b);
-        },
-        0x01 => {
-            cpu.rlc(&cpu.bc.bit8.c);
-        },
-        0x02 => {
-            cpu.rlc(&cpu.de.bit8.d);
-        },
-        0x03 => {
-            cpu.rlc(&cpu.de.bit8.e);
-        },
-        0x04 => {
-            cpu.rlc(&cpu.hl.bit8.h);
-        },
-        0x05 => {
-            cpu.rlc(&cpu.hl.bit8.l);
-        },
-        0x06 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.rlc(&value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x07 => {
-            cpu.rlc(&cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RES = 3 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RES = 3 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RES = 3 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RES = 3 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RES = 3 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RES = 3 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RES = 3 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RES = 3 } }),
 
-        0x08 => {
-            cpu.rrc(&cpu.bc.bit8.b);
-        },
-        0x09 => {
-            cpu.rrc(&cpu.bc.bit8.c);
-        },
-        0x0A => {
-            cpu.rrc(&cpu.de.bit8.d);
-        },
-        0x0B => {
-            cpu.rrc(&cpu.de.bit8.e);
-        },
-        0x0C => {
-            cpu.rrc(&cpu.hl.bit8.h);
-        },
-        0x0D => {
-            cpu.rrc(&cpu.hl.bit8.l);
-        },
-        0x0E => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.rrc(&value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x0F => {
-            cpu.rrc(&cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RES = 4 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RES = 4 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RES = 4 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RES = 4 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RES = 4 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RES = 4 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RES = 4 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RES = 4 } }),
 
-        0x10 => {
-            cpu.rl(&cpu.bc.bit8.b);
-        },
-        0x11 => {
-            cpu.rl(&cpu.bc.bit8.c);
-        },
-        0x12 => {
-            cpu.rl(&cpu.de.bit8.d);
-        },
-        0x13 => {
-            cpu.rl(&cpu.de.bit8.e);
-        },
-        0x14 => {
-            cpu.rl(&cpu.hl.bit8.h);
-        },
-        0x15 => {
-            cpu.rl(&cpu.hl.bit8.l);
-        },
-        0x16 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.rl(&value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x17 => {
-            cpu.rl(&cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RES = 5 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RES = 5 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RES = 5 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RES = 5 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RES = 5 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RES = 5 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RES = 5 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RES = 5 } }),
 
-        0x18 => {
-            cpu.rr(&cpu.bc.bit8.b);
-        },
-        0x19 => {
-            cpu.rr(&cpu.bc.bit8.c);
-        },
-        0x1A => {
-            cpu.rr(&cpu.de.bit8.d);
-        },
-        0x1B => {
-            cpu.rr(&cpu.de.bit8.e);
-        },
-        0x1C => {
-            cpu.rr(&cpu.hl.bit8.h);
-        },
-        0x1D => {
-            cpu.rr(&cpu.hl.bit8.l);
-        },
-        0x1E => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.rr(&value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x1F => {
-            cpu.rr(&cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RES = 6 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RES = 6 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RES = 6 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RES = 6 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RES = 6 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RES = 6 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RES = 6 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RES = 6 } }),
 
-        0x20 => {
-            cpu.sla(&cpu.bc.bit8.b);
-        },
-        0x21 => {
-            cpu.sla(&cpu.bc.bit8.c);
-        },
-        0x22 => {
-            cpu.sla(&cpu.de.bit8.d);
-        },
-        0x23 => {
-            cpu.sla(&cpu.de.bit8.e);
-        },
-        0x24 => {
-            cpu.sla(&cpu.hl.bit8.h);
-        },
-        0x25 => {
-            cpu.sla(&cpu.hl.bit8.l);
-        },
-        0x26 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.sla(&value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x27 => {
-            cpu.sla(&cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .RES = 7 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .RES = 7 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .RES = 7 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .RES = 7 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .RES = 7 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .RES = 7 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .RES = 7 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .RES = 7 } }),
 
-        0x28 => {
-            cpu.sra(&cpu.bc.bit8.b);
-        },
-        0x29 => {
-            cpu.sra(&cpu.bc.bit8.c);
-        },
-        0x2A => {
-            cpu.sra(&cpu.de.bit8.d);
-        },
-        0x2B => {
-            cpu.sra(&cpu.de.bit8.e);
-        },
-        0x2C => {
-            cpu.sra(&cpu.hl.bit8.h);
-        },
-        0x2D => {
-            cpu.sra(&cpu.hl.bit8.l);
-        },
-        0x2E => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.sra(&value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x2F => {
-            cpu.sra(&cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SET = 0 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SET = 0 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SET = 0 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SET = 0 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SET = 0 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SET = 0 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SET = 0 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SET = 0 } }),
 
-        0x30 => {
-            cpu.swap(&cpu.bc.bit8.b);
-        },
-        0x31 => {
-            cpu.swap(&cpu.bc.bit8.c);
-        },
-        0x32 => {
-            cpu.swap(&cpu.de.bit8.d);
-        },
-        0x33 => {
-            cpu.swap(&cpu.de.bit8.e);
-        },
-        0x34 => {
-            cpu.swap(&cpu.hl.bit8.h);
-        },
-        0x35 => {
-            cpu.swap(&cpu.hl.bit8.l);
-        },
-        0x36 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.swap(&value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x37 => {
-            cpu.swap(&cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SET = 1 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SET = 1 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SET = 1 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SET = 1 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SET = 1 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SET = 1 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SET = 1 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SET = 1 } }),
 
-        0x38 => {
-            cpu.srl(&cpu.bc.bit8.b);
-        },
-        0x39 => {
-            cpu.srl(&cpu.bc.bit8.c);
-        },
-        0x3A => {
-            cpu.srl(&cpu.de.bit8.d);
-        },
-        0x3B => {
-            cpu.srl(&cpu.de.bit8.e);
-        },
-        0x3C => {
-            cpu.srl(&cpu.hl.bit8.h);
-        },
-        0x3D => {
-            cpu.srl(&cpu.hl.bit8.l);
-        },
-        0x3E => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.srl(&value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x3F => {
-            cpu.srl(&cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SET = 2 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SET = 2 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SET = 2 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SET = 2 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SET = 2 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SET = 2 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SET = 2 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SET = 2 } }),
 
-        0x40 => {
-            cpu.bit(0, cpu.bc.bit8.b);
-        },
-        0x41 => {
-            cpu.bit(0, cpu.bc.bit8.c);
-        },
-        0x42 => {
-            cpu.bit(0, cpu.de.bit8.d);
-        },
-        0x43 => {
-            cpu.bit(0, cpu.de.bit8.e);
-        },
-        0x44 => {
-            cpu.bit(0, cpu.hl.bit8.h);
-        },
-        0x45 => {
-            cpu.bit(0, cpu.hl.bit8.l);
-        },
-        0x46 => {
-            cpu.bit(0, bus.read8(cpu.hl.bit16));
-            bus.tick(1);
-        },
-        0x47 => {
-            cpu.bit(0, cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SET = 3 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SET = 3 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SET = 3 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SET = 3 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SET = 3 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SET = 3 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SET = 3 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SET = 3 } }),
 
-        0x48 => {
-            cpu.bit(1, cpu.bc.bit8.b);
-        },
-        0x49 => {
-            cpu.bit(1, cpu.bc.bit8.c);
-        },
-        0x4A => {
-            cpu.bit(1, cpu.de.bit8.d);
-        },
-        0x4B => {
-            cpu.bit(1, cpu.de.bit8.e);
-        },
-        0x4C => {
-            cpu.bit(1, cpu.hl.bit8.h);
-        },
-        0x4D => {
-            cpu.bit(1, cpu.hl.bit8.l);
-        },
-        0x4E => {
-            cpu.bit(1, bus.read8(cpu.hl.bit16));
-            bus.tick(1);
-        },
-        0x4F => {
-            cpu.bit(1, cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SET = 4 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SET = 4 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SET = 4 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SET = 4 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SET = 4 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SET = 4 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SET = 4 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SET = 4 } }),
 
-        0x50 => {
-            cpu.bit(2, cpu.bc.bit8.b);
-        },
-        0x51 => {
-            cpu.bit(2, cpu.bc.bit8.c);
-        },
-        0x52 => {
-            cpu.bit(2, cpu.de.bit8.d);
-        },
-        0x53 => {
-            cpu.bit(2, cpu.de.bit8.e);
-        },
-        0x54 => {
-            cpu.bit(2, cpu.hl.bit8.h);
-        },
-        0x55 => {
-            cpu.bit(2, cpu.hl.bit8.l);
-        },
-        0x56 => {
-            cpu.bit(2, bus.read8(cpu.hl.bit16));
-            bus.tick(1);
-        },
-        0x57 => {
-            cpu.bit(2, cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SET = 5 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SET = 5 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SET = 5 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SET = 5 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SET = 5 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SET = 5 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SET = 5 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SET = 5 } }),
 
-        0x58 => {
-            cpu.bit(3, cpu.bc.bit8.b);
-        },
-        0x59 => {
-            cpu.bit(3, cpu.bc.bit8.c);
-        },
-        0x5A => {
-            cpu.bit(3, cpu.de.bit8.d);
-        },
-        0x5B => {
-            cpu.bit(3, cpu.de.bit8.e);
-        },
-        0x5C => {
-            cpu.bit(3, cpu.hl.bit8.h);
-        },
-        0x5D => {
-            cpu.bit(3, cpu.hl.bit8.l);
-        },
-        0x5E => {
-            cpu.bit(3, bus.read8(cpu.hl.bit16));
-            bus.tick(1);
-        },
-        0x5F => {
-            cpu.bit(3, cpu.af.bit8.a);
-        },
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SET = 6 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SET = 6 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SET = 6 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SET = 6 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SET = 6 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SET = 6 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SET = 6 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SET = 6 } }),
 
-        0x60 => {
-            cpu.bit(4, cpu.bc.bit8.b);
-        },
-        0x61 => {
-            cpu.bit(4, cpu.bc.bit8.c);
-        },
-        0x62 => {
-            cpu.bit(4, cpu.de.bit8.d);
-        },
-        0x63 => {
-            cpu.bit(4, cpu.de.bit8.e);
-        },
-        0x64 => {
-            cpu.bit(4, cpu.hl.bit8.h);
-        },
-        0x65 => {
-            cpu.bit(4, cpu.hl.bit8.l);
-        },
-        0x66 => {
-            cpu.bit(4, bus.read8(cpu.hl.bit16));
-            bus.tick(1);
-        },
-        0x67 => {
-            cpu.bit(4, cpu.af.bit8.a);
-        },
-
-        0x68 => {
-            cpu.bit(5, cpu.bc.bit8.b);
-        },
-        0x69 => {
-            cpu.bit(5, cpu.bc.bit8.c);
-        },
-        0x6A => {
-            cpu.bit(5, cpu.de.bit8.d);
-        },
-        0x6B => {
-            cpu.bit(5, cpu.de.bit8.e);
-        },
-        0x6C => {
-            cpu.bit(5, cpu.hl.bit8.h);
-        },
-        0x6D => {
-            cpu.bit(5, cpu.hl.bit8.l);
-        },
-        0x6E => {
-            cpu.bit(5, bus.read8(cpu.hl.bit16));
-            bus.tick(1);
-        },
-        0x6F => {
-            cpu.bit(5, cpu.af.bit8.a);
-        },
-
-        0x70 => {
-            cpu.bit(6, cpu.bc.bit8.b);
-        },
-        0x71 => {
-            cpu.bit(6, cpu.bc.bit8.c);
-        },
-        0x72 => {
-            cpu.bit(6, cpu.de.bit8.d);
-        },
-        0x73 => {
-            cpu.bit(6, cpu.de.bit8.e);
-        },
-        0x74 => {
-            cpu.bit(6, cpu.hl.bit8.h);
-        },
-        0x75 => {
-            cpu.bit(6, cpu.hl.bit8.l);
-        },
-        0x76 => {
-            cpu.bit(6, bus.read8(cpu.hl.bit16));
-            bus.tick(1);
-        },
-        0x77 => {
-            cpu.bit(6, cpu.af.bit8.a);
-        },
-
-        0x78 => {
-            cpu.bit(7, cpu.bc.bit8.b);
-        },
-        0x79 => {
-            cpu.bit(7, cpu.bc.bit8.c);
-        },
-        0x7A => {
-            cpu.bit(7, cpu.de.bit8.d);
-        },
-        0x7B => {
-            cpu.bit(7, cpu.de.bit8.e);
-        },
-        0x7C => {
-            cpu.bit(7, cpu.hl.bit8.h);
-        },
-        0x7D => {
-            cpu.bit(7, cpu.hl.bit8.l);
-        },
-        0x7E => {
-            cpu.bit(7, bus.read8(cpu.hl.bit16));
-            bus.tick(1);
-        },
-        0x7F => {
-            cpu.bit(7, cpu.af.bit8.a);
-        },
-
-        0x80 => {
-            cpu.res(0, &cpu.bc.bit8.b);
-        },
-        0x81 => {
-            cpu.res(0, &cpu.bc.bit8.c);
-        },
-        0x82 => {
-            cpu.res(0, &cpu.de.bit8.d);
-        },
-        0x83 => {
-            cpu.res(0, &cpu.de.bit8.e);
-        },
-        0x84 => {
-            cpu.res(0, &cpu.hl.bit8.h);
-        },
-        0x85 => {
-            cpu.res(0, &cpu.hl.bit8.l);
-        },
-        0x86 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.res(0, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x87 => {
-            cpu.res(0, &cpu.af.bit8.a);
-        },
-
-        0x88 => {
-            cpu.res(1, &cpu.bc.bit8.b);
-        },
-        0x89 => {
-            cpu.res(1, &cpu.bc.bit8.c);
-        },
-        0x8A => {
-            cpu.res(1, &cpu.de.bit8.d);
-        },
-        0x8B => {
-            cpu.res(1, &cpu.de.bit8.e);
-        },
-        0x8C => {
-            cpu.res(1, &cpu.hl.bit8.h);
-        },
-        0x8D => {
-            cpu.res(1, &cpu.hl.bit8.l);
-        },
-        0x8E => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.res(1, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x8F => {
-            cpu.res(1, &cpu.af.bit8.a);
-        },
-
-        0x90 => {
-            cpu.res(2, &cpu.bc.bit8.b);
-        },
-        0x91 => {
-            cpu.res(2, &cpu.bc.bit8.c);
-        },
-        0x92 => {
-            cpu.res(2, &cpu.de.bit8.d);
-        },
-        0x93 => {
-            cpu.res(2, &cpu.de.bit8.e);
-        },
-        0x94 => {
-            cpu.res(2, &cpu.hl.bit8.h);
-        },
-        0x95 => {
-            cpu.res(2, &cpu.hl.bit8.l);
-        },
-        0x96 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.res(2, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x97 => {
-            cpu.res(2, &cpu.af.bit8.a);
-        },
-
-        0x98 => {
-            cpu.res(3, &cpu.bc.bit8.b);
-        },
-        0x99 => {
-            cpu.res(3, &cpu.bc.bit8.c);
-        },
-        0x9A => {
-            cpu.res(3, &cpu.de.bit8.d);
-        },
-        0x9B => {
-            cpu.res(3, &cpu.de.bit8.e);
-        },
-        0x9C => {
-            cpu.res(3, &cpu.hl.bit8.h);
-        },
-        0x9D => {
-            cpu.res(3, &cpu.hl.bit8.l);
-        },
-        0x9E => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.res(3, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0x9F => {
-            cpu.res(3, &cpu.af.bit8.a);
-        },
-
-        0xA0 => {
-            cpu.res(4, &cpu.bc.bit8.b);
-        },
-        0xA1 => {
-            cpu.res(4, &cpu.bc.bit8.c);
-        },
-        0xA2 => {
-            cpu.res(4, &cpu.de.bit8.d);
-        },
-        0xA3 => {
-            cpu.res(4, &cpu.de.bit8.e);
-        },
-        0xA4 => {
-            cpu.res(4, &cpu.hl.bit8.h);
-        },
-        0xA5 => {
-            cpu.res(4, &cpu.hl.bit8.l);
-        },
-        0xA6 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.res(4, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xA7 => {
-            cpu.res(4, &cpu.af.bit8.a);
-        },
-
-        0xA8 => {
-            cpu.res(5, &cpu.bc.bit8.b);
-        },
-        0xA9 => {
-            cpu.res(5, &cpu.bc.bit8.c);
-        },
-        0xAA => {
-            cpu.res(5, &cpu.de.bit8.d);
-        },
-        0xAB => {
-            cpu.res(5, &cpu.de.bit8.e);
-        },
-        0xAC => {
-            cpu.res(5, &cpu.hl.bit8.h);
-        },
-        0xAD => {
-            cpu.res(5, &cpu.hl.bit8.l);
-        },
-        0xAE => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.res(5, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xAF => {
-            cpu.res(5, &cpu.af.bit8.a);
-        },
-
-        0xB0 => {
-            cpu.res(6, &cpu.bc.bit8.b);
-        },
-        0xB1 => {
-            cpu.res(6, &cpu.bc.bit8.c);
-        },
-        0xB2 => {
-            cpu.res(6, &cpu.de.bit8.d);
-        },
-        0xB3 => {
-            cpu.res(6, &cpu.de.bit8.e);
-        },
-        0xB4 => {
-            cpu.res(6, &cpu.hl.bit8.h);
-        },
-        0xB5 => {
-            cpu.res(6, &cpu.hl.bit8.l);
-        },
-        0xB6 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.res(6, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xB7 => {
-            cpu.res(6, &cpu.af.bit8.a);
-        },
-
-        0xB8 => {
-            cpu.res(7, &cpu.bc.bit8.b);
-        },
-        0xB9 => {
-            cpu.res(7, &cpu.bc.bit8.c);
-        },
-        0xBA => {
-            cpu.res(7, &cpu.de.bit8.d);
-        },
-        0xBB => {
-            cpu.res(7, &cpu.de.bit8.e);
-        },
-        0xBC => {
-            cpu.res(7, &cpu.hl.bit8.h);
-        },
-        0xBD => {
-            cpu.res(7, &cpu.hl.bit8.l);
-        },
-        0xBE => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.res(7, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xBF => {
-            cpu.res(7, &cpu.af.bit8.a);
-        },
-
-        0xC0 => {
-            cpu.set(0, &cpu.bc.bit8.b);
-        },
-        0xC1 => {
-            cpu.set(0, &cpu.bc.bit8.c);
-        },
-        0xC2 => {
-            cpu.set(0, &cpu.de.bit8.d);
-        },
-        0xC3 => {
-            cpu.set(0, &cpu.de.bit8.e);
-        },
-        0xC4 => {
-            cpu.set(0, &cpu.hl.bit8.h);
-        },
-        0xC5 => {
-            cpu.set(0, &cpu.hl.bit8.l);
-        },
-        0xC6 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.set(0, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xC7 => {
-            cpu.set(0, &cpu.af.bit8.a);
-        },
-
-        0xC8 => {
-            cpu.set(1, &cpu.bc.bit8.b);
-        },
-        0xC9 => {
-            cpu.set(1, &cpu.bc.bit8.c);
-        },
-        0xCA => {
-            cpu.set(1, &cpu.de.bit8.d);
-        },
-        0xCB => {
-            cpu.set(1, &cpu.de.bit8.e);
-        },
-        0xCC => {
-            cpu.set(1, &cpu.hl.bit8.h);
-        },
-        0xCD => {
-            cpu.set(1, &cpu.hl.bit8.l);
-        },
-        0xCE => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.set(1, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xCF => {
-            cpu.set(1, &cpu.af.bit8.a);
-        },
-
-        0xD0 => {
-            cpu.set(2, &cpu.bc.bit8.b);
-        },
-        0xD1 => {
-            cpu.set(2, &cpu.bc.bit8.c);
-        },
-        0xD2 => {
-            cpu.set(2, &cpu.de.bit8.d);
-        },
-        0xD3 => {
-            cpu.set(2, &cpu.de.bit8.e);
-        },
-        0xD4 => {
-            cpu.set(2, &cpu.hl.bit8.h);
-        },
-        0xD5 => {
-            cpu.set(2, &cpu.hl.bit8.l);
-        },
-        0xD6 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.set(2, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xD7 => {
-            cpu.set(2, &cpu.af.bit8.a);
-        },
-
-        0xD8 => {
-            cpu.set(3, &cpu.bc.bit8.b);
-        },
-        0xD9 => {
-            cpu.set(3, &cpu.bc.bit8.c);
-        },
-        0xDA => {
-            cpu.set(3, &cpu.de.bit8.d);
-        },
-        0xDB => {
-            cpu.set(3, &cpu.de.bit8.e);
-        },
-        0xDC => {
-            cpu.set(3, &cpu.hl.bit8.h);
-        },
-        0xDD => {
-            cpu.set(3, &cpu.hl.bit8.l);
-        },
-        0xDE => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.set(3, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xDF => {
-            cpu.set(3, &cpu.af.bit8.a);
-        },
-
-        0xE0 => {
-            cpu.set(4, &cpu.bc.bit8.b);
-        },
-        0xE1 => {
-            cpu.set(4, &cpu.bc.bit8.c);
-        },
-        0xE2 => {
-            cpu.set(4, &cpu.de.bit8.d);
-        },
-        0xE3 => {
-            cpu.set(4, &cpu.de.bit8.e);
-        },
-        0xE4 => {
-            cpu.set(4, &cpu.hl.bit8.h);
-        },
-        0xE5 => {
-            cpu.set(4, &cpu.hl.bit8.l);
-        },
-        0xE6 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.set(4, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xE7 => {
-            cpu.set(4, &cpu.af.bit8.a);
-        },
-
-        0xE8 => {
-            cpu.set(5, &cpu.bc.bit8.b);
-        },
-        0xE9 => {
-            cpu.set(5, &cpu.bc.bit8.c);
-        },
-        0xEA => {
-            cpu.set(5, &cpu.de.bit8.d);
-        },
-        0xEB => {
-            cpu.set(5, &cpu.de.bit8.e);
-        },
-        0xEC => {
-            cpu.set(5, &cpu.hl.bit8.h);
-        },
-        0xED => {
-            cpu.set(5, &cpu.hl.bit8.l);
-        },
-        0xEE => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.set(5, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xEF => {
-            cpu.set(5, &cpu.af.bit8.a);
-        },
-
-        0xF0 => {
-            cpu.set(6, &cpu.bc.bit8.b);
-        },
-        0xF1 => {
-            cpu.set(6, &cpu.bc.bit8.c);
-        },
-        0xF2 => {
-            cpu.set(6, &cpu.de.bit8.d);
-        },
-        0xF3 => {
-            cpu.set(6, &cpu.de.bit8.e);
-        },
-        0xF4 => {
-            cpu.set(6, &cpu.hl.bit8.h);
-        },
-        0xF5 => {
-            cpu.set(6, &cpu.hl.bit8.l);
-        },
-        0xF6 => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.set(6, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xF7 => {
-            cpu.set(6, &cpu.af.bit8.a);
-        },
-
-        0xF8 => {
-            cpu.set(7, &cpu.bc.bit8.b);
-        },
-        0xF9 => {
-            cpu.set(7, &cpu.bc.bit8.c);
-        },
-        0xFA => {
-            cpu.set(7, &cpu.de.bit8.d);
-        },
-        0xFB => {
-            cpu.set(7, &cpu.de.bit8.e);
-        },
-        0xFC => {
-            cpu.set(7, &cpu.hl.bit8.h);
-        },
-        0xFD => {
-            cpu.set(7, &cpu.hl.bit8.l);
-        },
-        0xFE => {
-            var value = bus.read8(cpu.hl.bit16);
-            bus.tick(1);
-            cpu.set(7, &value);
-            bus.write8(cpu.hl.bit16, value);
-            bus.tick(1);
-        },
-        0xFF => {
-            cpu.set(7, &cpu.af.bit8.a);
-        },
-    }
-}
+    createPrefixInstruction(.{ .reg = .B, .type = .{ .SET = 7 } }),
+    createPrefixInstruction(.{ .reg = .C, .type = .{ .SET = 7 } }),
+    createPrefixInstruction(.{ .reg = .D, .type = .{ .SET = 7 } }),
+    createPrefixInstruction(.{ .reg = .E, .type = .{ .SET = 7 } }),
+    createPrefixInstruction(.{ .reg = .H, .type = .{ .SET = 7 } }),
+    createPrefixInstruction(.{ .reg = .L, .type = .{ .SET = 7 } }),
+    createPrefixInstruction(.{ .reg = .HL, .type = .{ .SET = 7 } }),
+    createPrefixInstruction(.{ .reg = .A, .type = .{ .SET = 7 } }),
+};

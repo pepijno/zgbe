@@ -25,6 +25,11 @@ pub fn build(b: *std.Build) !void {
     exe.linkLibrary(raylib);
     b.installArtifact(exe);
 
+    // const waf = b.addWriteFiles();
+    // waf.addCopyFileToSource(exe.getEmittedAsm(), "main.asm");
+    // waf.step.dependOn(&exe.step);
+    // b.getInstallStep().dependOn(&waf.step);
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
