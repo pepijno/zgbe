@@ -31,33 +31,33 @@ pub fn tick(interrupt: *Interrupt, bus: *Bus) void {
             interrupt.master_enable_next_instruction = false;
 
             if (flags.as_flags.vblank) {
-                cpu.writeToStack16(bus, cpu.program_counter);
+                cpu.writeToStack16(bus, cpu.program_counter.bit16);
                 bus.tick(2);
-                cpu.program_counter = 0x0040;
+                cpu.program_counter.bit16 = 0x0040;
                 bus.tick(1);
                 interrupt.flags.as_flags.vblank = false;
             } else if (flags.as_flags.lcd) {
-                cpu.writeToStack16(bus, cpu.program_counter);
+                cpu.writeToStack16(bus, cpu.program_counter.bit16);
                 bus.tick(2);
-                cpu.program_counter = 0x0048;
+                cpu.program_counter.bit16 = 0x0048;
                 bus.tick(1);
                 interrupt.flags.as_flags.lcd = false;
             } else if (flags.as_flags.timer) {
-                cpu.writeToStack16(bus, cpu.program_counter);
+                cpu.writeToStack16(bus, cpu.program_counter.bit16);
                 bus.tick(2);
-                cpu.program_counter = 0x0050;
+                cpu.program_counter.bit16 = 0x0050;
                 bus.tick(1);
                 interrupt.flags.as_flags.timer = false;
             } else if (flags.as_flags.serial) {
-                cpu.writeToStack16(bus, cpu.program_counter);
+                cpu.writeToStack16(bus, cpu.program_counter.bit16);
                 bus.tick(2);
-                cpu.program_counter = 0x0058;
+                cpu.program_counter.bit16 = 0x0058;
                 bus.tick(1);
                 interrupt.flags.as_flags.serial = false;
             } else if (flags.as_flags.joypad) {
-                cpu.writeToStack16(bus, cpu.program_counter);
+                cpu.writeToStack16(bus, cpu.program_counter.bit16);
                 bus.tick(2);
-                cpu.program_counter = 0x0060;
+                cpu.program_counter.bit16 = 0x0060;
                 bus.tick(1);
                 interrupt.flags.as_flags.joypad = false;
             }

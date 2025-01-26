@@ -1,6 +1,7 @@
 const std = @import("std");
 const raylib = @import("raylib.zig");
 
+const Clock = @import("Clock.zig");
 const Bus = @import("Bus.zig");
 const Cartridge = @import("Cartridge.zig");
 const CPU = @import("CPU.zig");
@@ -63,29 +64,23 @@ fn updateWindow(ppu: *const PPU, scale: u32) void {
     }
 }
 
-fn cpuRun(cpu: *CPU, interrupt: *Interrupt, bus: *Bus) void {
-    cpu.halted = false;
-    cpu.running = true;
-
-    // var bla = false;
-
-    while (cpu.running) {
-        // if (cpu.af.bit8.a == 0x90 or bla) {
-        // if (!cpu.halted) {
-        //     cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
-        // }
-        //     bla = true;
-        // }
-
-        cpu.tick(bus);
-        interrupt.tick(bus);
-
-        if (bus.read8(0xFF02) == 0x81) {
-            std.debug.print("{c}", .{bus.read8(0xFF01)});
-            bus.write8(0xFF02, 0x0);
-        }
-    }
-}
+// fn cpuRun(cpu: *CPU, interrupt: *Interrupt, bus: *Bus) void {
+//
+//     // var bla = false;
+//
+//     while (cpu.running) {
+//         // if (cpu.af.bit8.a == 0x90 or bla) {
+//         // if (!cpu.halted) {
+//         //     cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
+//         // }
+//         //     bla = true;
+//         // }
+//
+//         cpu.tick(bus);
+//         interrupt.tick(bus);
+//
+//     }
+// }
 
 pub fn main() !void {
     const stdout_file = std.io.getStdOut().writer();
@@ -112,8 +107,11 @@ pub fn main() !void {
     // try cartridge.printData(stdout);
     // try bw.flush();
 
+    var clock = Clock{};
     var interrupt = Interrupt{};
     var cpu = CPU.initAfterBoot();
+    cpu.halted = false;
+    cpu.running = true;
     // cvar gamepad = Gamepad{};
     var timer = Timer.initAfterBoot();
     var dma = Dma{};
@@ -131,6 +129,8 @@ pub fn main() !void {
         .dma = &dma,
     };
 
+    // try cpu.printState(&bus, std.io.getStdOut().writer());
+
     const scale = 4;
     const debug_scale = 2;
     const screen_width = 20 * 8 * scale + 20 + 16 * (8 + 1) * debug_scale;
@@ -143,7 +143,7 @@ pub fn main() !void {
     var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();
 
-    _ = try std.Thread.spawn(.{}, cpuRun, .{ &cpu, &interrupt, &bus });
+    _ = try std.Thread.spawn(.{}, Clock.run, .{ &clock, &bus, &cpu, &timer, &dma, &ppu });
 
     // while (true)
     while (!raylib.WindowShouldClose()) // Detect window close button or ESC key

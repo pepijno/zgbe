@@ -53,7 +53,7 @@ fn incrementTima(timer: *Timer) void {
     }
 }
 
-pub fn tick(timer: *Timer) bool {
+pub fn tick(timer: *Timer, bus: *Bus) void {
     const tima_running = (timer.tac & 0x04) != 0;
 
     timer.cpu_clock +%= 1;
@@ -85,29 +85,12 @@ pub fn tick(timer: *Timer) bool {
 
     timer.falling_edge_detector_delay = falling_edge_detector_input;
 
-    // timer.div +%= 1;
-    //
-    // var interrupt = false;
-    //
-    // if (timer.tima_overflow) {
-    //     timer.tima_overflow = false;
-    //     timer.tima = timer.tma;
-    //     interrupt = true;
-    // }
-    //
-    // const freq: u16 = freq_dividers[@as(usize, timer.tac & 0b11)] / 4;
-    // const tima_increase: u8 = if ((timer.div +% 1) / freq == (timer.div / freq)) 0 else 1;
-    //
-    // if (tima_increase != 0 and (timer.tac & 0x4) != 0) {
-    //     if (timer.tima == 0xFF) {
-    //         timer.tima = 0x00;
-    //         timer.tima_overflow = true;
-    //     } else {
-    //         timer.tima += @truncate(tima_increase);
-    //     }
-    // }
-
-    return interrupt;
+    if (interrupt) {
+        var flags = bus.read8(0xFF0F);
+        // std.debug.print("{X:0>2}\n", .{flags});
+        flags |= (1 << 2);
+        bus.write8(0xFF0F, flags);
+    }
 }
 
 pub fn read(timer: *Timer, address: u16) u8 {

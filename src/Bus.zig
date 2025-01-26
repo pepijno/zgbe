@@ -40,6 +40,9 @@ lcd: *LCD,
 dma: *Dma,
 
 pub fn read8(bus: *const Bus, address: u16) u8 {
+    // if (address == 0xFF0F) {
+    //     std.io.getStdOut().writer().print("read {X:0>2}\n", .{bus.interrupt.flags.bit8}) catch unreachable;
+    // }
     return switch (address) {
         0x0000...0x00FF => if (bus.dmg_boot_rom == 0) bus.boot_rom[address] else bus.cartridge.read(address),
         0x0100...0x7FFF => bus.cartridge.read(address),
@@ -74,7 +77,9 @@ pub fn read16(bus: *const Bus, address: u16) u16 {
 }
 
 pub fn write8(bus: *Bus, address: u16, value: u8) void {
-    // std.debug.print("writing to {X:0>4}\n", .{address});
+    // if (address == 0xFF0F) {
+    //     std.io.getStdOut().writer().print("write {X:0>2}\n", .{value}) catch unreachable;
+    // }
     switch (address) {
         0x0000...0x7FFF => bus.cartridge.write(address, value),
         0x8000...0x9FFF => bus.ppu.vramWrite(address, value),
