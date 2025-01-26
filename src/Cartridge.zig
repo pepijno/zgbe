@@ -5,6 +5,22 @@ const std = @import("std");
 rom_data: []u8,
 header: RomHeader,
 
+battery: bool,
+need_save: bool,
+
+ram_bank: ?[]u8 = null,
+ram_banks: [16]?[]u8 = [_]?[]u8{null} ** 16,
+
+// MBC1
+ram_enabled: bool = false,
+ram_banking: bool = false,
+
+rom_bank_x: []u8 = &.{},
+banking_mode: u8 = 0,
+
+rom_bank_value: u8 = 0,
+ram_bank_value: u8 = 0,
+
 pub const RomHeader = extern struct {
     entry: [4]u8,
     logo: [0x30]u8,
@@ -21,6 +37,14 @@ pub const RomHeader = extern struct {
     version: u8,
     checksum: u8,
     global_checksum: u16,
+
+    fn isMBC1(self: @This()) bool {
+        return 1 <= self.type and self.type <= 3;
+    }
+
+    fn hasBattery(self: @This()) bool {
+        return self.type == 3;
+    }
 };
 
 pub fn open_cartridge(allocator: std.mem.Allocator, filename: []const u8) !Cartridge {
@@ -30,18 +54,115 @@ pub fn open_cartridge(allocator: std.mem.Allocator, filename: []const u8) !Cartr
     const content = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
     const header = std.mem.bytesAsValue(RomHeader, content[0x100..]);
 
-    return .{
+    var cartridge = Cartridge{
         .rom_data = content,
         .header = header.*,
+        .battery = header.hasBattery(),
+        .need_save = false,
     };
+
+    try cartridge.setupBanking(allocator);
+    // TODO checksum
+
+    // TODO battery
+
+    return cartridge;
+}
+
+fn setupBanking(cartridge: *Cartridge, allocator: std.mem.Allocator) !void {
+    for (0..16) |i| {
+        cartridge.ram_banks[i] = null;
+
+        if ((cartridge.header.ram_size == 2 and i == 0) or
+            (cartridge.header.ram_size == 3 and i < 4) or
+            (cartridge.header.ram_size == 4 and i < 16) or
+            (cartridge.header.ram_size == 5 and i < 8))
+        {
+            cartridge.ram_banks[i] = try allocator.alloc(u8, 0x2000);
+        }
+    }
+
+    cartridge.ram_bank = cartridge.ram_banks[0];
+    cartridge.rom_bank_x = cartridge.rom_data[0x4000..];
 }
 
 pub fn read(cartridge: *const Cartridge, address: u16) u8 {
-    return cartridge.rom_data[address];
+    if (!cartridge.header.isMBC1() or address < 0x4000) {
+        return cartridge.rom_data[address];
+    }
+
+    if ((address & 0xE000) == 0xA000) {
+        if (!cartridge.ram_enabled) {
+            return 0xFF;
+        }
+        if (cartridge.ram_bank == null) {
+            return 0xFF;
+        }
+        return cartridge.ram_bank.?[address - 0xA000];
+    }
+    return cartridge.rom_bank_x[address - 0x4000];
 }
 
 pub fn write(cartridge: *Cartridge, address: u16, value: u8) void {
-    cartridge.rom_data[address] = value;
+    if (!cartridge.header.isMBC1()) {
+        return;
+    }
+
+    if (address < 0x2000) {
+        cartridge.ram_enabled = ((value & 0xF) == 0xA);
+    }
+
+    var val = value;
+
+    if ((address & 0xE000) == 0x2000) {
+        // ROM bank number
+        if (val == 0) {
+            val = 1;
+        }
+
+        val &= 0b11111;
+
+        cartridge.rom_bank_value = val;
+        cartridge.rom_bank_x = cartridge.rom_data[(0x4000 * @as(u16, cartridge.rom_bank_value))..];
+    }
+
+    if ((address & 0xE000) == 0x4000) {
+        // RAM bank number
+        cartridge.ram_bank_value = val & 0b11;
+
+        if (cartridge.ram_banking) {
+            // TODO battery save
+
+            cartridge.ram_bank = cartridge.ram_banks[cartridge.ram_bank_value];
+        }
+    }
+
+    if ((address & 0xE000) == 0x6000) {
+        // banking mode select
+        cartridge.banking_mode = val & 1;
+
+        cartridge.ram_banking = cartridge.banking_mode != 0;
+
+        if (cartridge.ram_banking) {
+            // TODO battery save
+
+            cartridge.ram_bank = cartridge.ram_banks[cartridge.ram_bank_value];
+        }
+    }
+
+    if ((address & 0xE000) == 0xA000) {
+        if (!cartridge.ram_enabled) {
+            return;
+        }
+
+        if (cartridge.ram_bank == null) {
+            return;
+        }
+
+        cartridge.ram_bank.?[address - 0xA000] = val;
+
+        // TODO battery
+    }
 }
 
 pub fn verifyChecksum(cartridge: *const Cartridge) bool {

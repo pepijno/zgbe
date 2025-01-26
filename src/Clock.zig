@@ -17,13 +17,14 @@ pub fn run(clock: *Clock, bus: *Bus, cpu: *CPU, timer: *Timer, dma: *Dma, ppu: *
 
 fn tick(clock: *Clock, bus: *Bus, cpu: *CPU, timer: *Timer, dma: *Dma, ppu: *PPU) void {
     clock.ticks +%= 1;
+
     cpu.tick(bus);
-    timer.tick(bus);
-    dma.tick(bus);
 
     for (0..4) |_| {
         ppu.tick(bus);
     }
+    timer.tick(bus);
+    dma.tick(bus);
 
     if (bus.read8(0xFF02) == 0x81) {
         std.debug.print("{c}", .{bus.read8(0xFF01)});

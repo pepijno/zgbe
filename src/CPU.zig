@@ -223,7 +223,7 @@ pub fn printState(cpu: *const CPU, bus: *const Bus, writer: anytype) !void {
         bus.read8(cpu.program_counter.bit16 + 3),
     });
 
-    if (comptime true) {
+    if (comptime false) {
         try writer.print(" STACK:{X:0>2},{X:0>2},{X:0>2},{X:0>2} SP:{X:0>2},{X:0>2}", .{
             if (cpu.stack_pointer.bit16 < 0xFFFF) bus.read8(cpu.stack_pointer.bit16) else 0,
             if (@as(u32, cpu.stack_pointer.bit16) + 1 < 0xFFFF) bus.read8(cpu.stack_pointer.bit16 + 1) else 0,
@@ -316,44 +316,31 @@ const joypadInstructions: [5][]const QueueItem = .{
     &.{.{ .SET_PC = 0x0060 }},
 };
 
-// var interrupt_instructions = false;
-
 pub fn tick(cpu: *CPU, bus: *Bus) void {
+    const has_interrupts = cpu.maybeHandleInterrupts(bus);
+    if (has_interrupts) {
+        cpu.halted = false;
+    }
+
     if (cpu.halted) {
-        const has_interrupts = maybeHandleInterrupts(cpu, bus);
-        if (has_interrupts) {
-            // interrupt_instructions = true;
-            cpu.halted = false;
-        }
         return;
     }
 
-    if (cpu.instruction_queue.len > 0) {
-        const instructions = cpu.instruction_queue[0];
-        cpu.instruction_queue = cpu.instruction_queue[1..];
-        for (instructions) |item| {
-            cpu.executeInstruction(bus, item);
+    if (cpu.instruction_queue.len == 0) {
+        // cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
+        const opcode = bus.read8(cpu.program_counter.bit16);
+        cpu.program_counter.bit16 += 1;
+        cpu.instruction_queue = getInstructions(bus, opcode);
+        if (cpu.enable_interrupts) {
+            cpu.interrupts_enabled = true;
+            cpu.enable_interrupts = false;
         }
     }
 
-    if (cpu.instruction_queue.len == 0) {
-        const has_interrupts = maybeHandleInterrupts(cpu, bus);
-        // if (!interrupt_instructions) {
-        //     cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
-        // }
-        if (has_interrupts) {
-            // interrupt_instructions = true;
-            cpu.halted = false;
-        } else {
-            // interrupt_instructions = false;
-            const opcode = bus.read8(cpu.program_counter.bit16);
-            cpu.program_counter.bit16 += 1;
-            cpu.instruction_queue = getInstructions(bus, opcode);
-            if (cpu.enable_interrupts) {
-                cpu.interrupts_enabled = true;
-                cpu.enable_interrupts = false;
-            }
-        }
+    const instructions = cpu.instruction_queue[0];
+    cpu.instruction_queue = cpu.instruction_queue[1..];
+    for (instructions) |item| {
+        cpu.executeInstruction(bus, item);
     }
 }
 
@@ -644,7 +631,7 @@ fn executeInstruction(cpu: *CPU, bus: *Bus, item: QueueItem) void {
             }
         },
         .STOP => {
-            cpu.running = false;
+            // cpu.running = false;
         },
         .HALT => {
             cpu.halted = true;
@@ -959,7 +946,7 @@ fn getInstructions(bus: *Bus, opcode: u8) []const []const QueueItem {
         },
 
         0x10 => &.{
-            &.{ .STOP, .DISABLE_INTERRUPTS, .{ .INC_REG_16 = .PC } },
+            &.{ .STOP, .DISABLE_INTERRUPTS },
         },
         0x11 => &.{
             &.{ .{ .READ_8 = .{ .address = .PC, .to = .Z } }, .{ .INC_REG_16 = .PC } },
