@@ -40,10 +40,7 @@ ppu: *PPU,
 lcd: *LCD,
 dma: *Dma,
 
-pub fn read8(bus: *const Bus, address: u16) u8 {
-    if (address == 0xFF44) {
-        return 0x90;
-    }
+pub fn read(bus: *const Bus, address: u16) u8 {
     return switch (address) {
         0x0000...0x00FF => if (bus.dmg_boot_rom == 0) bus.boot_rom[address] else bus.cartridge.read(address),
         0x0100...0x7FFF => bus.cartridge.read(address),
@@ -75,7 +72,7 @@ pub fn read8(bus: *const Bus, address: u16) u8 {
     };
 }
 
-pub fn write8(bus: *Bus, address: u16, value: u8) void {
+pub fn write(bus: *Bus, address: u16, value: u8) void {
     switch (address) {
         0x0000...0x7FFF => bus.cartridge.write(address, value),
         0x8000...0x9FFF => bus.ppu.vramWrite(address, value),

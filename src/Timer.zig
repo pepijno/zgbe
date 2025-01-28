@@ -86,10 +86,9 @@ pub fn tick(timer: *Timer, bus: *Bus) void {
     timer.falling_edge_detector_delay = falling_edge_detector_input;
 
     if (interrupt) {
-        var flags = bus.read8(0xFF0F);
-        // std.debug.print("{X:0>2}\n", .{flags});
+        var flags = bus.read(0xFF0F);
         flags |= (1 << 2);
-        bus.write8(0xFF0F, flags);
+        bus.write(0xFF0F, flags);
     }
 }
 
@@ -106,6 +105,7 @@ pub fn read(timer: *Timer, address: u16) u8 {
 pub fn write(timer: *Timer, address: u16, value: u8) void {
     switch (address) {
         0xFF04 => {
+            timer.cpu_clock = 0x0000;
             timer.div = 0x0000;
         },
         0xFF05 => {

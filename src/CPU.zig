@@ -206,7 +206,7 @@ pub fn printState(cpu: *const CPU, bus: *const Bus, writer: anytype) !void {
     if (cpu.af.bit8.carry_flag) {
         flags |= (1 << 4);
     }
-    try writer.print("A:{X:0>2} F:{X:0>2} B:{X:0>2} C:{X:0>2} D:{X:0>2} E:{X:0>2} H:{X:0>2} L:{X:0>2} SP:{X:0>4} PC:{X:0>4} PCMEM:{X:0>2},{X:0>2},{X:0>2},{X:0>2}", .{
+    try writer.print("A:{X:0>2} F:{X:0>2} B:{X:0>2} C:{X:0>2} D:{X:0>2} E:{X:0>2} H:{X:0>2} L:{X:0>2} SP:{X:0>4} PC:{X:0>4} PCMEM:{X:0>2},{X:0>2},{X:0>2},{X:0>2} ({s})", .{
         cpu.af.bit8.a,
         flags,
         cpu.bc.bit8.b,
@@ -217,18 +217,19 @@ pub fn printState(cpu: *const CPU, bus: *const Bus, writer: anytype) !void {
         cpu.hl.bit8.l,
         cpu.stack_pointer.bit16,
         cpu.program_counter.bit16,
-        bus.read8(cpu.program_counter.bit16),
-        bus.read8(cpu.program_counter.bit16 + 1),
-        bus.read8(cpu.program_counter.bit16 + 2),
-        bus.read8(cpu.program_counter.bit16 + 3),
+        bus.read(cpu.program_counter.bit16),
+        bus.read(cpu.program_counter.bit16 + 1),
+        bus.read(cpu.program_counter.bit16 + 2),
+        bus.read(cpu.program_counter.bit16 + 3),
+        instStrs[bus.read(cpu.program_counter.bit16)],
     });
 
     if (comptime false) {
         try writer.print(" STACK:{X:0>2},{X:0>2},{X:0>2},{X:0>2} SP:{X:0>2},{X:0>2}", .{
-            if (cpu.stack_pointer.bit16 < 0xFFFF) bus.read8(cpu.stack_pointer.bit16) else 0,
-            if (@as(u32, cpu.stack_pointer.bit16) + 1 < 0xFFFF) bus.read8(cpu.stack_pointer.bit16 + 1) else 0,
-            if (@as(u32, cpu.stack_pointer.bit16) + 2 < 0xFFFF) bus.read8(cpu.stack_pointer.bit16 + 2) else 0,
-            if (@as(u32, cpu.stack_pointer.bit16) + 3 < 0xFFFF) bus.read8(cpu.stack_pointer.bit16 + 3) else 0,
+            if (cpu.stack_pointer.bit16 < 0xFFFF) bus.read(cpu.stack_pointer.bit16) else 0,
+            if (@as(u32, cpu.stack_pointer.bit16) + 1 < 0xFFFF) bus.read(cpu.stack_pointer.bit16 + 1) else 0,
+            if (@as(u32, cpu.stack_pointer.bit16) + 2 < 0xFFFF) bus.read(cpu.stack_pointer.bit16 + 2) else 0,
+            if (@as(u32, cpu.stack_pointer.bit16) + 3 < 0xFFFF) bus.read(cpu.stack_pointer.bit16 + 3) else 0,
             cpu.stack_pointer.bit8.msb,
             cpu.stack_pointer.bit8.lsb,
         });
@@ -237,9 +238,9 @@ pub fn printState(cpu: *const CPU, bus: *const Bus, writer: anytype) !void {
     try writer.print("\n", .{});
 }
 
-fn maybeHandleInterrupts(cpu: *CPU, bus: *Bus) bool {
-    var flags: Interrupt.InterruptFlags = @bitCast(bus.read8(0xFF0F));
-    const enabled: Interrupt.InterruptFlags = @bitCast(bus.read8(0xFFFF));
+pub fn maybeHandleInterrupts(cpu: *CPU, bus: *Bus) bool {
+    var flags: Interrupt.InterruptFlags = @bitCast(bus.read(0xFF0F));
+    const enabled: Interrupt.InterruptFlags = @bitCast(bus.read(0xFFFF));
 
     if ((flags.bit8 & enabled.bit8) == 0) {
         return false;
@@ -271,7 +272,7 @@ fn maybeHandleInterrupts(cpu: *CPU, bus: *Bus) bool {
         cpu.instruction_queue = &joypadInstructions;
         flags.as_flags.joypad = false;
     }
-    bus.write8(0xFF0F, flags.bit8);
+    bus.write(0xFF0F, flags.bit8);
 
     return true;
 }
@@ -317,30 +318,33 @@ const joypadInstructions: [5][]const QueueItem = .{
 };
 
 pub fn tick(cpu: *CPU, bus: *Bus) void {
-    const has_interrupts = cpu.maybeHandleInterrupts(bus);
-    if (has_interrupts) {
-        cpu.halted = false;
-    }
-
     if (cpu.halted) {
-        return;
-    }
+        if (bus.read(0xFF0F) != 0) {
+            cpu.halted = false;
+        }
+    } else {
+        if (cpu.instruction_queue.len == 0) {
+            const opcode = bus.read(cpu.program_counter.bit16);
+            cpu.program_counter.bit16 += 1;
+            cpu.instruction_queue = getInstructions(bus, opcode);
+        }
 
-    if (cpu.instruction_queue.len == 0) {
-        // cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
-        const opcode = bus.read8(cpu.program_counter.bit16);
-        cpu.program_counter.bit16 += 1;
-        cpu.instruction_queue = getInstructions(bus, opcode);
-        if (cpu.enable_interrupts) {
-            cpu.interrupts_enabled = true;
-            cpu.enable_interrupts = false;
+        const instructions = cpu.instruction_queue[0];
+        cpu.instruction_queue = cpu.instruction_queue[1..];
+        for (instructions) |item| {
+            cpu.executeInstruction(bus, item);
         }
     }
 
-    const instructions = cpu.instruction_queue[0];
-    cpu.instruction_queue = cpu.instruction_queue[1..];
-    for (instructions) |item| {
-        cpu.executeInstruction(bus, item);
+    if (cpu.instruction_queue.len == 0) {
+        if (cpu.interrupts_enabled) {
+            _ = cpu.maybeHandleInterrupts(bus);
+            cpu.enable_interrupts = false;
+        }
+
+        if (cpu.enable_interrupts) {
+            cpu.interrupts_enabled = true;
+        }
     }
 }
 
@@ -380,12 +384,12 @@ fn executeInstruction(cpu: *CPU, bus: *Bus, item: QueueItem) void {
         .NOP => {},
         .READ_8 => |loc| {
             const address = cpu.register16Value(loc.address).*;
-            const value = bus.read8(address);
+            const value = bus.read(address);
             cpu.register8Value(loc.to).* = value;
         },
         .READ_8_HIGH => |loc| {
             const address = 0xFF00 + @as(u16, cpu.register8Value(loc.address).*);
-            const value = bus.read8(address);
+            const value = bus.read(address);
             cpu.register8Value(loc.to).* = value;
         },
         .INC_REG_8 => |loc| {
@@ -421,12 +425,12 @@ fn executeInstruction(cpu: *CPU, bus: *Bus, item: QueueItem) void {
                 value &= 0xF0;
             }
             const address = cpu.register16Value(data.address).*;
-            bus.write8(address, value);
+            bus.write(address, value);
         },
         .WRITE_8_HIGH => |data| {
             const value = cpu.register8Value(data.value).*;
             const address: u16 = 0xFF00 + @as(u16, cpu.register8Value(data.address).*);
-            bus.write8(address, value);
+            bus.write(address, value);
         },
         .SET_PC => |value| {
             cpu.program_counter.bit16 = value;
@@ -612,22 +616,22 @@ fn executeInstruction(cpu: *CPU, bus: *Bus, item: QueueItem) void {
         },
         .CHECK_ZERO => {
             if (!cpu.af.bit8.zero_flag) {
-                cpu.instruction_queue = &.{};
+                cpu.instruction_queue = &.{&.{}};
             }
         },
         .CHECK_NOT_ZERO => {
             if (cpu.af.bit8.zero_flag) {
-                cpu.instruction_queue = &.{};
+                cpu.instruction_queue = &.{&.{}};
             }
         },
         .CHECK_CARRY => {
             if (!cpu.af.bit8.carry_flag) {
-                cpu.instruction_queue = &.{};
+                cpu.instruction_queue = &.{&.{}};
             }
         },
         .CHECK_NOT_CARRY => {
             if (cpu.af.bit8.carry_flag) {
-                cpu.instruction_queue = &.{};
+                cpu.instruction_queue = &.{&.{}};
             }
         },
         .STOP => {
@@ -1886,8 +1890,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x06 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RLC = .Z }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RLC = .Z }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x07 => &.{
             &.{.{ .RLC = .A }},
@@ -1913,8 +1917,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x0E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RRC = .Z }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RRC = .Z }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x0F => &.{
             &.{.{ .RRC = .A }},
@@ -1940,8 +1944,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x16 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RL = .Z }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RL = .Z }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x17 => &.{
             &.{.{ .RL = .A }},
@@ -1967,8 +1971,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x1E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RR = .Z }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RR = .Z }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x1F => &.{
             &.{.{ .RR = .A }},
@@ -1994,8 +1998,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x26 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SLA = .Z }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SLA = .Z }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x27 => &.{
             &.{.{ .SLA = .A }},
@@ -2021,8 +2025,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x2E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SRA = .Z }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SRA = .Z }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x2F => &.{
             &.{.{ .SRA = .A }},
@@ -2048,8 +2052,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x36 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SWAP = .Z }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SWAP = .Z }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x37 => &.{
             &.{.{ .SWAP = .A }},
@@ -2075,8 +2079,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x3E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SRL = .Z }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SRL = .Z }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x3F => &.{
             &.{.{ .SRL = .A }},
@@ -2103,7 +2107,6 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         0x46 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
             &.{.{ .BIT = .{ .register = .Z, .bit = 0 } }},
-            &.{},
         },
         0x47 => &.{
             &.{.{ .BIT = .{ .register = .A, .bit = 0 } }},
@@ -2130,7 +2133,6 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         0x4E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
             &.{.{ .BIT = .{ .register = .Z, .bit = 1 } }},
-            &.{},
         },
         0x4F => &.{
             &.{.{ .BIT = .{ .register = .A, .bit = 1 } }},
@@ -2157,7 +2159,6 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         0x56 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
             &.{.{ .BIT = .{ .register = .Z, .bit = 2 } }},
-            &.{},
         },
         0x57 => &.{
             &.{.{ .BIT = .{ .register = .A, .bit = 2 } }},
@@ -2184,7 +2185,6 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         0x5E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
             &.{.{ .BIT = .{ .register = .Z, .bit = 3 } }},
-            &.{},
         },
         0x5F => &.{
             &.{.{ .BIT = .{ .register = .A, .bit = 3 } }},
@@ -2211,7 +2211,6 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         0x66 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
             &.{.{ .BIT = .{ .register = .Z, .bit = 4 } }},
-            &.{},
         },
         0x67 => &.{
             &.{.{ .BIT = .{ .register = .A, .bit = 4 } }},
@@ -2238,7 +2237,6 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         0x6E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
             &.{.{ .BIT = .{ .register = .Z, .bit = 5 } }},
-            &.{},
         },
         0x6F => &.{
             &.{.{ .BIT = .{ .register = .A, .bit = 5 } }},
@@ -2265,7 +2263,6 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         0x76 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
             &.{.{ .BIT = .{ .register = .Z, .bit = 6 } }},
-            &.{},
         },
         0x77 => &.{
             &.{.{ .BIT = .{ .register = .A, .bit = 6 } }},
@@ -2292,7 +2289,6 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         0x7E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
             &.{.{ .BIT = .{ .register = .Z, .bit = 7 } }},
-            &.{},
         },
         0x7F => &.{
             &.{.{ .BIT = .{ .register = .A, .bit = 7 } }},
@@ -2318,8 +2314,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x86 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RES = .{ .register = .Z, .bit = 0 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RES = .{ .register = .Z, .bit = 0 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x87 => &.{
             &.{.{ .RES = .{ .register = .A, .bit = 0 } }},
@@ -2345,8 +2341,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x8E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RES = .{ .register = .Z, .bit = 1 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RES = .{ .register = .Z, .bit = 1 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x8F => &.{
             &.{.{ .RES = .{ .register = .A, .bit = 1 } }},
@@ -2372,8 +2368,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x96 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RES = .{ .register = .Z, .bit = 2 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RES = .{ .register = .Z, .bit = 2 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x97 => &.{
             &.{.{ .RES = .{ .register = .A, .bit = 2 } }},
@@ -2399,8 +2395,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0x9E => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RES = .{ .register = .Z, .bit = 3 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RES = .{ .register = .Z, .bit = 3 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0x9F => &.{
             &.{.{ .RES = .{ .register = .A, .bit = 3 } }},
@@ -2426,8 +2422,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xA6 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RES = .{ .register = .Z, .bit = 4 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RES = .{ .register = .Z, .bit = 4 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xA7 => &.{
             &.{.{ .RES = .{ .register = .A, .bit = 4 } }},
@@ -2453,8 +2449,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xAE => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RES = .{ .register = .Z, .bit = 5 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RES = .{ .register = .Z, .bit = 5 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xAF => &.{
             &.{.{ .RES = .{ .register = .A, .bit = 5 } }},
@@ -2480,8 +2476,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xB6 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RES = .{ .register = .Z, .bit = 6 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RES = .{ .register = .Z, .bit = 6 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xB7 => &.{
             &.{.{ .RES = .{ .register = .A, .bit = 6 } }},
@@ -2507,8 +2503,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xBE => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .RES = .{ .register = .Z, .bit = 7 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .RES = .{ .register = .Z, .bit = 7 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xBF => &.{
             &.{.{ .RES = .{ .register = .A, .bit = 7 } }},
@@ -2534,8 +2530,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xC6 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SET = .{ .register = .Z, .bit = 0 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SET = .{ .register = .Z, .bit = 0 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xC7 => &.{
             &.{.{ .SET = .{ .register = .A, .bit = 0 } }},
@@ -2561,8 +2557,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xCE => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SET = .{ .register = .Z, .bit = 1 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SET = .{ .register = .Z, .bit = 1 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xCF => &.{
             &.{.{ .SET = .{ .register = .A, .bit = 1 } }},
@@ -2588,8 +2584,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xD6 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SET = .{ .register = .Z, .bit = 2 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SET = .{ .register = .Z, .bit = 2 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xD7 => &.{
             &.{.{ .SET = .{ .register = .A, .bit = 2 } }},
@@ -2615,8 +2611,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xDE => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SET = .{ .register = .Z, .bit = 3 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SET = .{ .register = .Z, .bit = 3 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xDF => &.{
             &.{.{ .SET = .{ .register = .A, .bit = 3 } }},
@@ -2642,8 +2638,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xE6 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SET = .{ .register = .Z, .bit = 4 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SET = .{ .register = .Z, .bit = 4 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xE7 => &.{
             &.{.{ .SET = .{ .register = .A, .bit = 4 } }},
@@ -2669,8 +2665,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xEE => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SET = .{ .register = .Z, .bit = 5 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SET = .{ .register = .Z, .bit = 5 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xEF => &.{
             &.{.{ .SET = .{ .register = .A, .bit = 5 } }},
@@ -2696,8 +2692,8 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xF6 => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SET = .{ .register = .Z, .bit = 6 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SET = .{ .register = .Z, .bit = 6 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xF7 => &.{
             &.{.{ .SET = .{ .register = .A, .bit = 6 } }},
@@ -2723,11 +2719,270 @@ fn prefixInstruction(opcode: u8) []const []const QueueItem {
         },
         0xFE => &.{
             &.{.{ .READ_8 = .{ .address = .HL, .to = .Z } }},
-            &.{.{ .SET = .{ .register = .Z, .bit = 7 } }},
-            &.{.{ .WRITE_8 = .{ .address = .HL, .value = .Z } }},
+            &.{ .{ .SET = .{ .register = .Z, .bit = 7 } }, .{ .WRITE_8 = .{ .address = .HL, .value = .Z } } },
+            &.{},
         },
         0xFF => &.{
             &.{.{ .SET = .{ .register = .A, .bit = 7 } }},
         },
     };
 }
+
+const instStrs: [256][]const u8 = [_][]const u8{
+    "NOP",
+    "LD BC, n16",
+    "LD [BC], A",
+    "INC BC",
+    "INC B",
+    "DEC B",
+    "LD B, n8",
+    "RLCA",
+    "LD [a16], SP",
+    "ADD HL, BC",
+    "LD A, [BC]",
+    "DEC BC",
+    "INC C",
+    "DEC C",
+    "LD C, n8",
+    "RRCA",
+    "STOP",
+    "LD DE, n16",
+    "LD [DE], A",
+    "INC DE",
+    "INC D",
+    "DEC D",
+    "LD D, n8",
+    "RLA",
+    "JR e8",
+    "ADD HL, DE",
+    "LD A, [DE]",
+    "DEC DE",
+    "INC E",
+    "DEC E",
+    "LD E, n8",
+    "RRA",
+    "JR NZ, e8",
+    "LD HL, n16",
+    "LD [HL+], A",
+    "INC HL",
+    "INC H",
+    "DEC H",
+    "LD H, n8",
+    "DAA",
+    "JR Z, e8",
+    "ADD HL, HL",
+    "LD A, [HL+]",
+    "DEC HL",
+    "INC L",
+    "DEC L",
+    "LD L, n8",
+    "CPL",
+    "JR NC, e8",
+    "LD SP, n16",
+    "LD [HL-], A",
+    "INC [SP]",
+    "INC [HL]",
+    "DEC [HL]",
+    "LD [HL], n8",
+    "SCF",
+    "JR C, e8",
+    "ADD HL, SP",
+    "LD A, [HL-]",
+    "DEC SP",
+    "INC A",
+    "DEC A",
+    "LD A, n8",
+    "CCF",
+    "LD B, B",
+    "LD B, C",
+    "LD B, D",
+    "LD B, E",
+    "LD B, H",
+    "LD B, L",
+    "LD B, [HL]",
+    "LD B, A",
+    "LD C, B",
+    "LD C, C",
+    "LD C, D",
+    "LD C, E",
+    "LD C, H",
+    "LD C, L",
+    "LD C, [HL]",
+    "LD C, A",
+    "LD D, B",
+    "LD D, C",
+    "LD D, D",
+    "LD D, E",
+    "LD D, H",
+    "LD D, L",
+    "LD D, [HL]",
+    "LD D, A",
+    "LD E, B",
+    "LD E, C",
+    "LD E, D",
+    "LD E, E",
+    "LD E, H",
+    "LD E, L",
+    "LD E, [HL]",
+    "LD E, A",
+    "LD H, B",
+    "LD H, C",
+    "LD H, D",
+    "LD H, E",
+    "LD H, H",
+    "LD H, L",
+    "LD H, [HL]",
+    "LD H, A",
+    "LD L, B",
+    "LD L, C",
+    "LD L, D",
+    "LD L, E",
+    "LD L, H",
+    "LD L, L",
+    "LD L, [HL]",
+    "LD L, A",
+    "LD [HL], B",
+    "LD [HL], C",
+    "LD [HL], D",
+    "LD [HL], E",
+    "LD [HL], H",
+    "LD [HL], L",
+    "HALT",
+    "LD [HL], A",
+    "LD A, B",
+    "LD A, C",
+    "LD A, D",
+    "LD A, E",
+    "LD A, H",
+    "LD A, L",
+    "LD A, [HL]",
+    "LD A, A",
+    "ADD A, B",
+    "ADD A, C",
+    "ADD A, D",
+    "ADD A, E",
+    "ADD A, H",
+    "ADD A, L",
+    "ADD A, [HL]",
+    "ADD A, A",
+    "ADC A, B",
+    "ADC A, C",
+    "ADC A, D",
+    "ADC A, E",
+    "ADC A, H",
+    "ADC A, L",
+    "ADC A, [HL]",
+    "ADC A, A",
+    "SUB A, B",
+    "SUB A, C",
+    "SUB A, D",
+    "SUB A, E",
+    "SUB A, H",
+    "SUB A, L",
+    "SUB A, [HL]",
+    "SUB A, A",
+    "SBC A, B",
+    "SBC A, C",
+    "SBC A, D",
+    "SBC A, E",
+    "SBC A, H",
+    "SBC A, L",
+    "SBC A, [HL]",
+    "SBC A, A",
+    "AND A, B",
+    "AND A, C",
+    "AND A, D",
+    "AND A, E",
+    "AND A, H",
+    "AND A, L",
+    "AND A, [HL]",
+    "AND A, A",
+    "XOR A, B",
+    "XOR A, C",
+    "XOR A, D",
+    "XOR A, E",
+    "XOR A, H",
+    "XOR A, L",
+    "XOR A, [HL]",
+    "XOR A, A",
+    "OR A, B",
+    "OR A, C",
+    "OR A, D",
+    "OR A, E",
+    "OR A, H",
+    "OR A, L",
+    "OR A, [HL]",
+    "OR A, A",
+    "CP A, B",
+    "CP A, C",
+    "CP A, D",
+    "CP A, E",
+    "CP A, H",
+    "CP A, L",
+    "CP A, [HL]",
+    "CP A, A",
+    "RET NZ",
+    "POP BC",
+    "JP NZ, a16",
+    "JP a16",
+    "CALL NZ, a16",
+    "PUSH BC",
+    "ADD A, n8",
+    "RST $00",
+    "RET Z",
+    "RET",
+    "JP Z, a16",
+    "PREFIX",
+    "CALL Z, a16",
+    "CALL a16",
+    "ADC A, n8",
+    "RST $08",
+    "RET NC",
+    "POP DE",
+    "JP NC, a16",
+    "ILLEGAL_D3",
+    "CALL NC, a16",
+    "PUSH DE",
+    "SUB A, n8",
+    "RST $10",
+    "RET C",
+    "RETI",
+    "JP C, a16",
+    "ILLEGAL_DB",
+    "CALL C, a16",
+    "ILLEGAL_DD",
+    "SBC A, n8",
+    "RST $18",
+    "LDH [a8], A",
+    "POP HL",
+    "LDH [C], A",
+    "ILLEGAL_E3",
+    "ILLEGAL_E4",
+    "PUSH HL",
+    "AND A, n8",
+    "RST $20",
+    "ADD SP, e8",
+    "JP HL",
+    "LD [a16], A",
+    "ILLEGAL_EB",
+    "ILLEGAL_EC",
+    "ILLEGAL_ED",
+    "XOR A, n8",
+    "RST $28",
+    "LDH A, [a8]",
+    "POP AF",
+    "LDH A, [C]",
+    "DI",
+    "ILLEGAL_F4",
+    "PUSH AF",
+    "OR A, n8",
+    "RST $30",
+    "LD HL, SP + e8",
+    "LD SP, HL",
+    "LD A, [a16]",
+    "EI",
+    "ILLEGAL_FC",
+    "ILLEGAL_FD",
+    "CP A, n8",
+    "RST $38",
+};

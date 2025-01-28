@@ -15,8 +15,8 @@ const Timer = @import("Timer.zig");
 fn drawTile(bus: *Bus, scale: u32, address: u16, tile_num: u16, x: u32, y: u32) void {
     var tile_y: u16 = 0;
     while (tile_y < 16) : (tile_y += 2) {
-        const b1: u8 = bus.read8(address + tile_num * 16 + tile_y);
-        const b2: u8 = bus.read8(address + tile_num * 16 + tile_y + 1);
+        const b1: u8 = bus.read(address + tile_num * 16 + tile_y);
+        const b2: u8 = bus.read(address + tile_num * 16 + tile_y + 1);
 
         for (0..8) |bit| {
             const bit_: u3 = @truncate(bit);
@@ -58,29 +58,10 @@ fn updateWindow(ppu: *const PPU, scale: u32) void {
             const x_draw = scale * x;
             const y_draw = scale * y;
             const color = ppu.pixel_buffers[ppu.buffer_read_index][160 * y + x];
-            // std.debug.print("{}\n", .{color});
             raylib.DrawRectangle(@intCast(x_draw), @intCast(y_draw), @intCast(scale), @intCast(scale), raylib.GetColor(color));
         }
     }
 }
-
-// fn cpuRun(cpu: *CPU, interrupt: *Interrupt, bus: *Bus) void {
-//
-//     // var bla = false;
-//
-//     while (cpu.running) {
-//         // if (cpu.af.bit8.a == 0x90 or bla) {
-//         // if (!cpu.halted) {
-//         //     cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
-//         // }
-//         //     bla = true;
-//         // }
-//
-//         cpu.tick(bus);
-//         interrupt.tick(bus);
-//
-//     }
-// }
 
 pub fn main() !void {
     const stdout_file = std.io.getStdOut().writer();
@@ -103,9 +84,9 @@ pub fn main() !void {
     const file_name = if (args.len < 2) "roms/cpu_instrs.gb" else args[1];
 
     var cartridge = try Cartridge.open_cartridge(allocator, file_name);
-    // try cartridge.print(stdout);
-    // try cartridge.printData(stdout);
-    // try bw.flush();
+    try cartridge.print(stdout);
+    try cartridge.printData(stdout);
+    try bw.flush();
 
     var clock = Clock{};
     var interrupt = Interrupt{};
@@ -128,8 +109,6 @@ pub fn main() !void {
         .lcd = &lcd,
         .dma = &dma,
     };
-
-    // try cpu.printState(&bus, std.io.getStdOut().writer());
 
     const scale = 4;
     const debug_scale = 2;

@@ -98,7 +98,7 @@ const PixelFifo = struct {
                     const bg_x: u8 = @truncate((@as(u16, self.x) + @as(u16, lcd.scroll_x)) & 0xFF);
                     const bg_y: u8 = @truncate((@as(u16, lcd.scroll_y) + lcd.lcd_y) & 0xFF);
 
-                    self.tile_id = bus.read8(tile_map_address + bg_x / 8 + 32 * @as(u16, bg_y / 8));
+                    self.tile_id = bus.read(tile_map_address + bg_x / 8 + 32 * @as(u16, bg_y / 8));
                     if (lcd.lcd_control.data.background_and_window_tile_data_area == .a_8800_97FF) {
                         self.tile_id +%= 128;
                     }
@@ -106,9 +106,9 @@ const PixelFifo = struct {
                     self.loadWindowTile(ppu, lcd, bus);
                 }
 
-                if (lcd.lcd_control.data.obj_enable and ppu.line_sprites != null) {
-                    ppu.loadSpriteTile();
-                }
+                // if (lcd.lcd_control.data.obj_enable and ppu.line_sprites != null) {
+                //     ppu.loadSpriteTile();
+                // }
 
                 self.state = .get_tile_data_low;
                 self.x += 8;
@@ -119,9 +119,9 @@ const PixelFifo = struct {
                     .a_8800_97FF => 0x8800,
                     .a_8000_8FFF => 0x8000,
                 };
-                self.color_data[0] = bus.read8(background_address + @as(u16, self.tile_id) * 16 + line);
+                self.color_data[0] = bus.read(background_address + @as(u16, self.tile_id) * 16 + line);
 
-                ppu.loadSpriteData(bus, 0);
+                // ppu.loadSpriteData(bus, 0);
 
                 self.state = .get_tile_data_high;
             },
@@ -131,9 +131,9 @@ const PixelFifo = struct {
                     .a_8800_97FF => 0x8800,
                     .a_8000_8FFF => 0x8000,
                 };
-                self.color_data[1] = bus.read8(background_address + @as(u16, self.tile_id) * 16 + line + 1);
+                self.color_data[1] = bus.read(background_address + @as(u16, self.tile_id) * 16 + line + 1);
 
-                ppu.loadSpriteData(bus, 1);
+                // ppu.loadSpriteData(bus, 1);
 
                 self.state = .sleep;
             },
@@ -156,9 +156,9 @@ const PixelFifo = struct {
                             color = lcd.background_palette.get(0);
                         }
 
-                        if (lcd.lcd_control.data.obj_enable) {
-                            color = ppu.fetchSpritePixels(color, @truncate(hi | lo));
-                        }
+                        // if (lcd.lcd_control.data.obj_enable) {
+                        //     color = ppu.fetchSpritePixels(color, @truncate(hi | lo));
+                        // }
 
                         if (x >= 0) {
                             self.background_fifo.push(.{ .color = color });
@@ -190,7 +190,7 @@ const PixelFifo = struct {
 
                 const w_tile_x: u16 = @as(u16, self.x) + 7 - lcd.window_x;
 
-                self.tile_id = bus.read8(tile_map_address + w_tile_x / 8 + 32 * @as(u16, ppu.window_line / 8));
+                self.tile_id = bus.read(tile_map_address + w_tile_x / 8 + 32 * @as(u16, ppu.window_line / 8));
                 if (lcd.lcd_control.data.background_and_window_tile_data_area == .a_8800_97FF) {
                     self.tile_id +%= 128;
                 }
@@ -220,6 +220,8 @@ fetched_entry_count: u8 = 0,
 fetched_entries: [3]OAMEntry = std.mem.zeroes([3]OAMEntry),
 window_line: u8 = 0,
 
+total_ticks: u64 = 0,
+
 const OAMLineEntry = struct {
     entry: OAMEntry,
     next: ?*OAMLineEntry,
@@ -233,6 +235,7 @@ pub fn init(lcd: *LCD) PPU {
 
 pub fn tick(ppu: *PPU, bus: *Bus) void {
     ppu.dots += 1;
+    ppu.total_ticks += 1;
     switch (ppu.lcd.lcd_status.data.ppu_mode) {
         .oam_search => {
             if (ppu.dots > 80) {
@@ -262,7 +265,7 @@ pub fn tick(ppu: *PPU, bus: *Bus) void {
             }
         },
         .h_blank => {
-            if (ppu.dots > 456) {
+            if (ppu.dots >= 456) {
                 ppu.incrementLCDY(bus);
 
                 if (ppu.lcd.lcd_y >= 144) {
@@ -281,7 +284,7 @@ pub fn tick(ppu: *PPU, bus: *Bus) void {
             }
         },
         .v_blank => {
-            if (ppu.dots > 456) {
+            if (ppu.dots >= 456) {
                 ppu.incrementLCDY(bus);
 
                 if (ppu.lcd.lcd_y >= 154) {
@@ -451,7 +454,7 @@ fn loadSpriteData(ppu: *PPU, bus: *const Bus, offset: u8) void {
             tile_index &= 0xFE;
         }
 
-        ppu.pixel_fifo.entry_data[(i * 2) + offset] = bus.read8(0x8000 + (@as(u16, tile_index) * 16) + ty + offset);
+        ppu.pixel_fifo.entry_data[(i * 2) + offset] = bus.read(0x8000 + (@as(u16, tile_index) * 16) + ty + offset);
     }
 }
 

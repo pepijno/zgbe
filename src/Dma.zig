@@ -23,8 +23,8 @@ pub fn tick(dma: *Dma, bus: *Bus) void {
     if (dma.start_delay != 0) {
         dma.start_delay -= 1;
 
-        const value = bus.read8(@as(u16, dma.value) * 0x100 + @as(u16, dma.byte));
-        bus.write8(0xFE00 + @as(u16, dma.byte), value);
+        const value = bus.read(@as(u16, dma.value) * 0x100 + @as(u16, dma.byte));
+        bus.write(0xFE00 + @as(u16, dma.byte), value);
     }
 
     dma.byte += 1;

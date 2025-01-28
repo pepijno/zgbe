@@ -25,6 +25,7 @@
           xorg.libXinerama
           xorg.libXi
           libGL
+          flamegraph
         ];
       in
       rec {
