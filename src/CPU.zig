@@ -317,13 +317,33 @@ const joypadInstructions: [5][]const QueueItem = .{
     &.{.{ .SET_PC = 0x0060 }},
 };
 
+pub var should_print = false;
+
 pub fn tick(cpu: *CPU, bus: *Bus) void {
+    if (cpu.instruction_queue.len == 0) {
+        if (cpu.interrupts_enabled) {
+            _ = cpu.maybeHandleInterrupts(bus);
+            cpu.enable_interrupts = false;
+        }
+
+        if (cpu.enable_interrupts) {
+            cpu.interrupts_enabled = true;
+        }
+    }
     if (cpu.halted) {
         if (bus.read(0xFF0F) != 0) {
             cpu.halted = false;
         }
     } else {
         if (cpu.instruction_queue.len == 0) {
+            // if (bus.read(cpu.program_counter.bit16) == 0xAF and bus.read(cpu.program_counter.bit16 + 1) == 0xE0) {
+            //     // should_print = true;
+            // }
+            // cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
+            // if (should_print) {
+            //     var buffer = [_]u8{0} ** 16;
+            //     _ = std.io.getStdIn().reader().read(&buffer) catch unreachable;
+            // }
             const opcode = bus.read(cpu.program_counter.bit16);
             cpu.program_counter.bit16 += 1;
             cpu.instruction_queue = getInstructions(bus, opcode);
@@ -333,17 +353,6 @@ pub fn tick(cpu: *CPU, bus: *Bus) void {
         cpu.instruction_queue = cpu.instruction_queue[1..];
         for (instructions) |item| {
             cpu.executeInstruction(bus, item);
-        }
-    }
-
-    if (cpu.instruction_queue.len == 0) {
-        if (cpu.interrupts_enabled) {
-            _ = cpu.maybeHandleInterrupts(bus);
-            cpu.enable_interrupts = false;
-        }
-
-        if (cpu.enable_interrupts) {
-            cpu.interrupts_enabled = true;
         }
     }
 }

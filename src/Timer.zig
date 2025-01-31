@@ -124,72 +124,18 @@ pub fn write(timer: *Timer, address: u16, value: u8) void {
         },
         0xFF07 => {
             timer.tac = (value & 0b111) | (timer.tac & 0b11111000);
-
-            const tima_running = (timer.tac & 0x4) != 0;
-            const new_tima_bit = timer.timaBit();
-
-            if (timer.falling_edge_detector_delay == 1 and (!tima_running or new_tima_bit == 0)) {
-                timer.incrementTima();
-            }
         },
         else => unreachable,
     }
 }
 
 pub fn printState(timer: *Timer, writer: anytype) !void {
-    try writer.print("DIV:{X:0>4} TIMA:{X:0>2} TMA:{X:0>2} TAC:{X:0>2}\n", .{
+    try writer.print("CLOCK:{} DIV:{X:0>2} TMA:{X:0>2} TIMA:{X:0>2} TAC:{X:0>2} DELAY:{}\n", .{
+        timer.cpu_clock,
         timer.div,
-        timer.tima,
         timer.tma,
+        timer.tima,
         timer.tac,
+        timer.falling_edge_detector_delay,
     });
 }
-
-// test "div" {
-//     var timer = Timer.initBeforeBoot();
-//
-//     for (0..256) |_| {
-//         _ = timer.tick();
-//     }
-//
-//     try std.testing.expectEqual(1, timer.divider());
-//
-//     for (0..512) |_| {
-//         _ = timer.tick();
-//     }
-//
-//     try std.testing.expectEqual(3, timer.divider());
-// }
-//
-// test "tima" {
-//     var timer = Timer.initBeforeBoot();
-//     timer.tac = 0x07;
-//
-//     for (0..255) |_| {
-//         _ = timer.tick();
-//     }
-//
-//     try std.testing.expectEqual(0, timer.tima);
-//     _ = timer.tick();
-//     try std.testing.expectEqual(1, timer.tima);
-//
-//     timer = Timer.initBeforeBoot();
-//     timer.tac = 0x05;
-//
-//     for (0..64) |_| {
-//         _ = timer.tick();
-//     }
-//     try std.testing.expectEqual(4, timer.tima);
-// }
-//
-// test "tima overflow" {
-//     var timer = Timer.initBeforeBoot();
-//     timer.tac = 0x05;
-//
-//     for (0..(16 * 0xFF + 15)) |_| {
-//         const int = timer.tick();
-//         try std.testing.expectEqual(false, int);
-//     }
-//     const int = timer.tick();
-//     try std.testing.expect(int);
-// }

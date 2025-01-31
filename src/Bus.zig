@@ -66,7 +66,7 @@ pub fn read(bus: *const Bus, address: u16) u8 {
         0xFF0F => bus.interrupt.flags.bit8,
         0xFFFF => bus.interrupt.enable.bit8,
         else => {
-            std.debug.print("cannot read from 0x{X:0>4}\n", .{address});
+            // std.debug.print("cannot read from 0x{X:0>4}\n", .{address});
             return 0x00;
         },
     };
@@ -97,7 +97,7 @@ pub fn write(bus: *Bus, address: u16, value: u8) void {
         0xFF80...0xFFFE => bus.hram[address - 0xFF80] = value,
         0xFFFF => bus.interrupt.enable.bit8 = value,
         else => {
-            std.debug.print("cannot write to 0x{X:0>4}\n", .{address});
+            // std.debug.print("cannot write to 0x{X:0>4}\n", .{address});
         },
     }
 }

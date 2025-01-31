@@ -31,6 +31,6 @@ pub fn tick(dma: *Dma, bus: *Bus) void {
     dma.running = dma.byte < 0xA0;
 
     if (!dma.running) {
-        std.debug.print("DMA done\n", .{});
+        // std.debug.print("DMA done\n", .{});
     }
 }

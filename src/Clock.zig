@@ -23,6 +23,12 @@ pub fn run(clock: *Clock, bus: *Bus, cpu: *CPU, timer: *Timer, dma: *Dma, ppu: *
     }
 }
 
+pub fn runSteps(clock: *Clock, bus: *Bus, cpu: *CPU, timer: *Timer, dma: *Dma, ppu: *PPU, steps: u64) void {
+    for (0..steps) |_| {
+        clock.tick(bus, cpu, timer, dma, ppu);
+    }
+}
+
 var manual = false;
 
 fn tick(clock: *Clock, bus: *Bus, cpu: *CPU, timer: *Timer, dma: *Dma, ppu: *PPU) void {

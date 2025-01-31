@@ -25,11 +25,6 @@ pub fn build(b: *std.Build) !void {
     exe.linkLibrary(raylib);
     b.installArtifact(exe);
 
-    // const waf = b.addWriteFiles();
-    // waf.addCopyFileToSource(exe.getEmittedAsm(), "main.asm");
-    // waf.step.dependOn(&exe.step);
-    // b.getInstallStep().dependOn(&waf.step);
-
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -49,4 +44,17 @@ pub fn build(b: *std.Build) !void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    const acceptance = b.addExecutable(.{
+        .name = "zgbe-acceptance",
+        .root_source_file = b.path("src/acceptance.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(acceptance);
+
+    // const acceptance_step = b.step("acceptance", "Build acceptance");
+    // acceptance_step.dependOn(&acceptance.step);
+    // const install_acceptance = b.addInstallArtifact(exe, .{});
+    // acceptance_step.dependOn(&install_acceptance.step);
 }

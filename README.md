@@ -54,7 +54,7 @@
 |ei_sequence.gb|✅|
 |ei_timing.gb|✅|
 |halt_ime0_ei.gb|✅|
-|halt_ime0_nointr_timing.gb|✅|
+|halt_ime0_nointr_timing.gb|❌|
 |halt_ime1_timing2-GS.gb|✅|
 |halt_ime1_timing.gb|✅|
 |if_ie_registers.gb|❌|
@@ -87,11 +87,11 @@
 |rapid_di_ei.gb|❌|
 |ret_cc_timing.gb|❌|
 |reti_intr_timing.gb|✅|
-|reti_timing.gb|✅|
+|reti_timing.gb|❌|
 |ret_timing.gb|❌|
 |rst_timing.gb|❌|
 |timer/div_write.gb|✅|
-|timer/rapid_toggle.gb|❌|
+|timer/rapid_toggle.gb|✅|
 |timer/tim00_div_trigger.gb|✅|
 |timer/tim00.gb|✅|
 |timer/tim01_div_trigger.gb|✅|
