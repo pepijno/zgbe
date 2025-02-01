@@ -11,6 +11,7 @@ const Interrupt = @import("Interrupt.zig");
 const LCD = @import("LCD.zig");
 const PPU = @import("PPU.zig");
 const Timer = @import("Timer.zig");
+const Writer = @import("writer.zig");
 
 fn drawTile(bus: *Bus, scale: u32, address: u16, tile_num: u16, x: u32, y: u32) void {
     var tile_y: u16 = 0;
@@ -53,21 +54,45 @@ fn updateDebugWindow(bus: *Bus, start_x: u32, scale: u32) void {
 }
 
 fn updateWindow(ppu: *const PPU, scale: u32) void {
+    const index = ppu.buffer_read_index;
     for (0..144) |y| {
         for (0..160) |x| {
             const x_draw = scale * x;
             const y_draw = scale * y;
-            const color = ppu.pixel_buffers[ppu.buffer_read_index][160 * y + x];
+            const color = ppu.pixel_buffers[index][160 * y + x];
             raylib.DrawRectangle(@intCast(x_draw), @intCast(y_draw), @intCast(scale), @intCast(scale), raylib.GetColor(color));
         }
     }
 }
 
-pub fn main() !void {
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+pub fn printData(rom_data: []const u8, writer: anytype) !void {
+    var i: u32 = 0;
+    while (i < rom_data.len) : (i += 16) {
+        try writer.print("0x{X:0>4}\t", .{i});
+        var j: u32 = i;
+        while (j < i + 8) : (j += 1) {
+            const data = rom_data[j];
+            if (data == 0) {
+                try writer.print(".. ", .{});
+            } else {
+                try writer.print("{X:0>2} ", .{data});
+            }
+        }
+        try writer.print("  ", .{});
+        while (j < i + 16) : (j += 1) {
+            const data = rom_data[j];
+            if (data == 0) {
+                try writer.print(".. ", .{});
+            } else {
+                try writer.print("{X:0>2} ", .{data});
+            }
+        }
 
+        try writer.print("\n", .{});
+    }
+}
+
+pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -78,29 +103,31 @@ pub fn main() !void {
     var boot_rom: [0x100]u8 = std.mem.zeroes([0x100]u8);
     _ = try file.read(&boot_rom);
 
+    try printData(&boot_rom, Writer.stdout);
+
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
     const file_name = if (args.len < 2) "roms/cpu_instrs.gb" else args[1];
 
     var cartridge = try Cartridge.open_cartridge(allocator, file_name);
-    // try cartridge.print(stdout);
-    // try cartridge.printData(stdout);
-    // try bw.flush();
+    // try cartridge.print(Writer.stdout);
+    // try cartridge.printData(Writer.stdout);
+    try Writer.bw.flush();
 
     var clock = Clock{};
     var interrupt = Interrupt{};
-    var cpu = CPU.initAfterBoot();
+    var cpu = CPU.initBeforeBoot();
     cpu.halted = false;
     cpu.running = true;
     // cvar gamepad = Gamepad{};
-    var timer = Timer.initAfterBoot();
+    var timer = Timer.initBeforeBoot();
     var dma = Dma{};
     var lcd = LCD{ .dma = &dma };
     var ppu = PPU.init(&lcd);
     var bus = Bus{
         .boot_rom = boot_rom,
-        .dmg_boot_rom = 1,
+        .dmg_boot_rom = 0,
         .interrupt = &interrupt,
         .cartridge = &cartridge,
         .cpu = &cpu,
@@ -146,9 +173,9 @@ pub fn main() !void {
         //----------------------------------------------------------------------------------
     }
 
-    try stdout.print("{s}\n", .{buffer.items});
+    try Writer.stdout.print("{s}\n", .{buffer.items});
 
-    try bw.flush();
+    try Writer.bw.flush();
 }
 
 test {

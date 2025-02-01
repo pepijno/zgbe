@@ -3,6 +3,7 @@ const CPU = @This();
 const std = @import("std");
 const Bus = @import("Bus.zig");
 const Interrupt = @import("Interrupt.zig");
+const Writer = @import("writer.zig");
 
 fn bitSet(value: u8, bit: u3) bool {
     return (value & (@as(u8, 1) << bit)) != 0;
@@ -339,7 +340,7 @@ pub fn tick(cpu: *CPU, bus: *Bus) void {
             // if (bus.read(cpu.program_counter.bit16) == 0xAF and bus.read(cpu.program_counter.bit16 + 1) == 0xE0) {
             //     // should_print = true;
             // }
-            // cpu.printState(bus, std.io.getStdOut().writer()) catch unreachable;
+            // cpu.printState(bus, Writer.stdout) catch unreachable;
             // if (should_print) {
             //     var buffer = [_]u8{0} ** 16;
             //     _ = std.io.getStdIn().reader().read(&buffer) catch unreachable;
@@ -1753,8 +1754,8 @@ fn getInstructions(bus: *Bus, opcode: u8) []const []const QueueItem {
 
         0xE0 => &.{
             &.{ .{ .READ_8 = .{ .address = .PC, .to = .Z } }, .{ .INC_REG_16 = .PC } },
-            &.{.{ .WRITE_8_HIGH = .{ .value = .A, .address = .Z } }},
             &.{},
+            &.{.{ .WRITE_8_HIGH = .{ .value = .A, .address = .Z } }},
         },
         0xE1 => &.{
             &.{ .{ .READ_8 = .{ .address = .SP, .to = .Z } }, .{ .INC_REG_16 = .SP } },
@@ -1810,8 +1811,8 @@ fn getInstructions(bus: *Bus, opcode: u8) []const []const QueueItem {
 
         0xF0 => &.{
             &.{ .{ .READ_8 = .{ .address = .PC, .to = .Z } }, .{ .INC_REG_16 = .PC } },
-            &.{.{ .READ_8_HIGH = .{ .address = .Z, .to = .W } }},
-            &.{.{ .ASSIGN_8 = .{ .from = .W, .to = .A } }},
+            &.{},
+            &.{ .{ .READ_8_HIGH = .{ .address = .Z, .to = .W } }, .{ .ASSIGN_8 = .{ .from = .W, .to = .A } } },
         },
         0xF1 => &.{
             &.{ .{ .READ_8 = .{ .address = .SP, .to = .Z } }, .{ .INC_REG_16 = .SP } },

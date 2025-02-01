@@ -10,6 +10,7 @@ const Interrupt = @import("Interrupt.zig");
 const LCD = @import("LCD.zig");
 const PPU = @import("PPU.zig");
 const Timer = @import("Timer.zig");
+const Writer = @import("writer.zig");
 
 pub fn main() !void {
     try runTest("roms/mooneye/acceptance/add_sp_e_timing.gb");
@@ -83,10 +84,6 @@ pub fn main() !void {
 }
 
 pub fn runTest(rom_path: []const u8) !void {
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -116,12 +113,12 @@ pub fn runTest(rom_path: []const u8) !void {
     Clock.runSteps(&clock, &bus, &cpu, &timer, &dma, &ppu, 1_000_000);
 
     if (cpu.af.bit8.a != 0) {
-        try stdout.print("[\u{001b}[31mFAIL\u{001b}[0m] {s}: assertion failuers in hardware test\n", .{rom_path});
+        try Writer.stdout.print("[\u{001b}[31mFAIL\u{001b}[0m]    {s}: assertion failuers in hardware test\n", .{rom_path});
     } else if (cpu.bc.bit8.b != 3 or cpu.bc.bit8.c != 5 or cpu.de.bit8.d != 8 or cpu.de.bit8.e != 13 or cpu.hl.bit8.h != 21 or cpu.hl.bit8.l != 34) {
-        try stdout.print("[\u{001b}[31mFAIL\u{001b}[0m] {s}: hardware test failed\n", .{rom_path});
+        try Writer.stdout.print("[\u{001b}[31mFAIL\u{001b}[0m]    {s}: hardware test failed\n", .{rom_path});
     } else {
-        try stdout.print("[\u{001b}[32mSUCCESS\u{001b}[0m] {s}\n", .{rom_path});
+        try Writer.stdout.print("[\u{001b}[32mSUCCESS\u{001b}[0m] {s}\n", .{rom_path});
     }
 
-    try bw.flush();
+    try Writer.bw.flush();
 }

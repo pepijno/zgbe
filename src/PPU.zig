@@ -3,6 +3,7 @@ const PPU = @This();
 const std = @import("std");
 const Bus = @import("Bus.zig");
 const LCD = @import("LCD.zig");
+const Writer = @import("writer.zig");
 
 pub const default_colors = [_]u32{ 0xFFFFFFFF, 0xAAAAAAFF, 0x555555FF, 0x000000FF };
 
@@ -106,9 +107,9 @@ const PixelFifo = struct {
                     self.loadWindowTile(ppu, lcd, bus);
                 }
 
-                // if (lcd.lcd_control.data.obj_enable and ppu.line_sprites != null) {
-                //     ppu.loadSpriteTile();
-                // }
+                if (lcd.lcd_control.data.obj_enable and ppu.line_sprites != null) {
+                    ppu.loadSpriteTile();
+                }
 
                 self.state = .get_tile_data_low;
                 self.x += 8;
@@ -121,7 +122,7 @@ const PixelFifo = struct {
                 };
                 self.color_data[0] = bus.read(background_address + @as(u16, self.tile_id) * 16 + line);
 
-                // ppu.loadSpriteData(bus, 0);
+                ppu.loadSpriteData(bus, 0);
 
                 self.state = .get_tile_data_high;
             },
@@ -133,7 +134,7 @@ const PixelFifo = struct {
                 };
                 self.color_data[1] = bus.read(background_address + @as(u16, self.tile_id) * 16 + line + 1);
 
-                // ppu.loadSpriteData(bus, 1);
+                ppu.loadSpriteData(bus, 1);
 
                 self.state = .sleep;
             },
@@ -156,9 +157,9 @@ const PixelFifo = struct {
                             color = lcd.background_palette.get(0);
                         }
 
-                        // if (lcd.lcd_control.data.obj_enable) {
-                        //     color = ppu.fetchSpritePixels(color, @truncate(hi | lo));
-                        // }
+                        if (lcd.lcd_control.data.obj_enable) {
+                            color = ppu.fetchSpritePixels(color, @truncate(hi | lo));
+                        }
 
                         if (x >= 0) {
                             self.background_fifo.push(.{ .color = color });
@@ -233,7 +234,23 @@ pub fn init(lcd: *LCD) PPU {
     return ppu;
 }
 
+pub fn write(ppu: *PPU, address: u16, value: u8) void {
+    switch (address) {
+        0xFF40 => {
+            if ((value & (@as(u8, 1) << 7)) != 0 and !ppu.lcd.lcd_control.data.lcd_and_ppu_enable) {
+                ppu.dots = 456 - 84;
+            }
+            ppu.lcd.write(address, value);
+        },
+        else => {},
+    }
+}
+
 pub fn tick(ppu: *PPU, bus: *Bus) void {
+    if (!ppu.lcd.lcd_control.data.lcd_and_ppu_enable) {
+        return;
+    }
+
     ppu.dots += 1;
     ppu.total_ticks += 1;
     switch (ppu.lcd.lcd_status.data.ppu_mode) {

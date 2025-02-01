@@ -4,6 +4,7 @@ const std = @import("std");
 const Dma = @import("Dma.zig");
 const Bus = @import("Bus.zig");
 const PPUMode = @import("PPU.zig").PPUMode;
+const Writer = @import("writer.zig");
 
 pub const ColorPalette = packed union {
     data: packed struct {
@@ -38,7 +39,7 @@ lcd_control: packed union {
         lcd_and_ppu_enable: bool,
     },
     bit8: u8,
-} = .{ .bit8 = 0x91 },
+} = .{ .bit8 = 0x0 },
 lcd_status: packed union {
     data: packed struct {
         ppu_mode: PPUMode,
@@ -84,11 +85,23 @@ pub fn read(lcd: *const LCD, address: u16) u8 {
 
 pub fn write(lcd: *LCD, address: u16, value: u8) void {
     switch (address) {
-        0xFF40 => lcd.lcd_control.bit8 = value,
+        0xFF40 => {
+            if ((value & (@as(u8, 1) << 7)) == 0 and lcd.lcd_control.data.lcd_and_ppu_enable) {
+                if (lcd.lcd_status.data.ppu_mode != .v_blank) {
+                    std.debug.panic("Warning! LCD off, but not in v_blank", .{});
+                }
+                lcd.lcd_y = 0;
+            }
+            if ((value & (@as(u8, 1) << 7)) != 0 and !lcd.lcd_control.data.lcd_and_ppu_enable) {
+                lcd.lcd_status.data.ppu_mode = .h_blank;
+                lcd.lcd_status.data.lcd_y_is_lcd_y_compare = true;
+            }
+            lcd.lcd_control.bit8 = value;
+        },
         0xFF41 => lcd.lcd_status.bit8 = (value & 0xF8) | (lcd.lcd_status.bit8 & 0x07),
         0xFF42 => lcd.scroll_y = value,
         0xFF43 => lcd.scroll_x = value,
-        0xFF44 => {},
+        0xFF44 => lcd.lcd_y = 0,
         0xFF45 => lcd.lcd_y_compare = value,
         0xFF46 => {
             lcd.dma.write(value);

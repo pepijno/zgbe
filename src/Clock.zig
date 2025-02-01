@@ -6,6 +6,7 @@ const PPU = @import("PPU.zig");
 const Dma = @import("Dma.zig");
 const Bus = @import("Bus.zig");
 const Timer = @import("Timer.zig");
+const Writer = @import("writer.zig");
 
 ticks: u64 = 0,
 nano_last_cycle: i128 = 0,
@@ -29,27 +30,22 @@ pub fn runSteps(clock: *Clock, bus: *Bus, cpu: *CPU, timer: *Timer, dma: *Dma, p
     }
 }
 
-var manual = false;
-
 fn tick(clock: *Clock, bus: *Bus, cpu: *CPU, timer: *Timer, dma: *Dma, ppu: *PPU) void {
     clock.ticks +%= 1;
 
-    if (cpu.instruction_queue.len == 0 and !cpu.halted) {
-        if (bus.read(cpu.program_counter.bit16) == 0xCB and bus.read(cpu.program_counter.bit16 + 1) == 0x4E) {
-            manual = true;
-        }
-    }
-
     cpu.tick(bus);
-
+    dma.tick(bus);
     for (0..4) |_| {
         ppu.tick(bus);
     }
     timer.tick(bus);
-    dma.tick(bus);
 
     if (bus.read(0xFF02) == 0x81) {
         std.debug.print("{c}", .{bus.read(0xFF01)});
         bus.write(0xFF02, 0x0);
+    }
+
+    if ((clock.ticks % 10000) == 0) {
+        Writer.bw.flush() catch unreachable;
     }
 }

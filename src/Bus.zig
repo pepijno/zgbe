@@ -21,6 +21,7 @@ const Interrupt = @import("Interrupt.zig");
 const LCD = @import("LCD.zig");
 const PPU = @import("PPU.zig");
 const Timer = @import("Timer.zig");
+const Writer = @import("writer.zig");
 
 boot_rom: [0x100]u8 = std.mem.zeroes([0x100]u8),
 rom: [0x8000]u8 = std.mem.zeroes([0x8000]u8),
@@ -80,7 +81,7 @@ pub fn write(bus: *Bus, address: u16, value: u8) void {
         0xC000...0xDFFF => bus.wram[address - 0xC000] = value,
         0xE000...0xFDFF => bus.wram[address - 0xE000] = value,
         0xFE00...0xFE9F => {
-            if (!bus.dma.running) {
+            if (bus.dma.running) {
                 bus.ppu.oamWrite(address, value);
             }
         },
@@ -90,7 +91,8 @@ pub fn write(bus: *Bus, address: u16, value: u8) void {
         0xFF04...0xFF07 => bus.timer.write(address, value),
         0xFF0F => bus.interrupt.flags.bit8 = value,
         0xFF10...0xFF26 => {}, // Ignore sound
-        0xFF40...0xFF45 => bus.lcd.write(address, value),
+        0xFF40 => bus.ppu.write(address, value),
+        0xFF41...0xFF45 => bus.lcd.write(address, value),
         0xFF46 => bus.dma.write(value),
         0xFF47...0xFF4B => bus.lcd.write(address, value),
         0xFF4D => bus.gbc_double = value,

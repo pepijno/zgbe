@@ -64,7 +64,7 @@
 |jp_cc_timing.gb|❌|
 |jp_timing.gb|❌|
 |ld_hl_sp_e_timing.gb|❌|
-|oam_dma/basic.gb|❌|
+|oam_dma/basic.gb|✅|
 |oam_dma/reg_read.gb|❌|
 |oam_dma/sources-GS.gb|❌|
 |oam_dma_restart.gb|❌|
