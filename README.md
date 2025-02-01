@@ -36,7 +36,7 @@
 |acceptance||
 |-|-|
 |add_sp_e_timing.gb|❌|
-|bits/mem_oam.gb|✅|
+|bits/mem_oam.gb|❌|
 |bits/reg_f.gb|✅|
 |bits/unused_hwio-GS.gb|❌|
 |boot_div-dmg0.gb|❌|
@@ -49,13 +49,13 @@
 |call_cc_timing.gb|❌|
 |call_timing2.gb|❌|
 |call_timing.gb|❌|
-|di_timing-GS.gb|✅|
+|di_timing-GS.gb|❌|
 |div_timing.gb|✅|
 |ei_sequence.gb|✅|
 |ei_timing.gb|✅|
-|halt_ime0_ei.gb|✅|
+|halt_ime0_ei.gb|❌|
 |halt_ime0_nointr_timing.gb|❌|
-|halt_ime1_timing2-GS.gb|✅|
+|halt_ime1_timing2-GS.gb|❌|
 |halt_ime1_timing.gb|✅|
 |if_ie_registers.gb|❌|
 |instr/daa.gb|✅|
@@ -65,7 +65,7 @@
 |jp_timing.gb|❌|
 |ld_hl_sp_e_timing.gb|❌|
 |oam_dma/basic.gb|✅|
-|oam_dma/reg_read.gb|❌|
+|oam_dma/reg_read.gb|✅|
 |oam_dma/sources-GS.gb|❌|
 |oam_dma_restart.gb|❌|
 |oam_dma_start.gb|❌|
@@ -91,7 +91,7 @@
 |ret_timing.gb|❌|
 |rst_timing.gb|❌|
 |timer/div_write.gb|✅|
-|timer/rapid_toggle.gb|✅|
+|timer/rapid_toggle.gb|❌|
 |timer/tim00_div_trigger.gb|✅|
 |timer/tim00.gb|✅|
 |timer/tim01_div_trigger.gb|✅|

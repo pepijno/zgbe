@@ -92,9 +92,7 @@ pub fn write(bus: *Bus, address: u16, value: u8) void {
         0xFF0F => bus.interrupt.flags.bit8 = value,
         0xFF10...0xFF26 => {}, // Ignore sound
         0xFF40 => bus.ppu.write(address, value),
-        0xFF41...0xFF45 => bus.lcd.write(address, value),
-        0xFF46 => bus.dma.write(value),
-        0xFF47...0xFF4B => bus.lcd.write(address, value),
+        0xFF41...0xFF4B => bus.lcd.write(address, value),
         0xFF4D => bus.gbc_double = value,
         0xFF80...0xFFFE => bus.hram[address - 0xFF80] = value,
         0xFFFF => bus.interrupt.enable.bit8 = value,
