@@ -111,8 +111,8 @@ pub fn main() !void {
     const file_name = if (args.len < 2) "roms/cpu_instrs.gb" else args[1];
 
     var cartridge = try Cartridge.open_cartridge(allocator, file_name);
-    // try cartridge.print(Writer.stdout);
-    // try cartridge.printData(Writer.stdout);
+    try cartridge.print(Writer.stdout);
+    try cartridge.printData(Writer.stdout);
     try Writer.bw.flush();
 
     var clock = Clock{};

@@ -81,9 +81,7 @@ pub fn write(bus: *Bus, address: u16, value: u8) void {
         0xC000...0xDFFF => bus.wram[address - 0xC000] = value,
         0xE000...0xFDFF => bus.wram[address - 0xE000] = value,
         0xFE00...0xFE9F => {
-            if (bus.dma.running) {
-                bus.ppu.oamWrite(address, value);
-            }
+            bus.ppu.oamWrite(address, value);
         },
         0xFEA0...0xFEFF => {},
         0xFF00 => bus.keys = value,
@@ -94,6 +92,7 @@ pub fn write(bus: *Bus, address: u16, value: u8) void {
         0xFF40 => bus.ppu.write(address, value),
         0xFF41...0xFF4B => bus.lcd.write(address, value),
         0xFF4D => bus.gbc_double = value,
+        0xFF50 => bus.dmg_boot_rom = value,
         0xFF80...0xFFFE => bus.hram[address - 0xFF80] = value,
         0xFFFF => bus.interrupt.enable.bit8 = value,
         else => {

@@ -26,7 +26,7 @@ pub fn tick(dma: *Dma, bus: *Bus) void {
         return;
     }
 
-    const value = bus.read(@as(u16, dma.value) * 0x100 + @as(u16, dma.byte));
+    const value = getValue(bus, @as(u16, dma.value) * 0x100 + @as(u16, dma.byte));
     bus.write(0xFE00 + @as(u16, dma.byte), value);
 
     dma.byte += 1;
@@ -35,4 +35,11 @@ pub fn tick(dma: *Dma, bus: *Bus) void {
     if (!dma.running) {
         // std.debug.print("DMA done\n", .{});
     }
+}
+
+fn getValue(bus: *Bus, address: u16) u8 {
+    return switch (@as(u8, @truncate(address >> 8))) {
+        0x00...0xDF => bus.read(address),
+        0xE0...0xFF => bus.read(address - 0x2000),
+    };
 }

@@ -36,7 +36,7 @@
 |acceptance||
 |-|-|
 |add_sp_e_timing.gb|❌|
-|bits/mem_oam.gb|❌|
+|bits/mem_oam.gb|✅|
 |bits/reg_f.gb|✅|
 |bits/unused_hwio-GS.gb|❌|
 |boot_div-dmg0.gb|❌|
@@ -66,7 +66,7 @@
 |ld_hl_sp_e_timing.gb|❌|
 |oam_dma/basic.gb|✅|
 |oam_dma/reg_read.gb|✅|
-|oam_dma/sources-GS.gb|❌|
+|oam_dma/sources-GS.gb|✅|
 |oam_dma_restart.gb|❌|
 |oam_dma_start.gb|❌|
 |oam_dma_timing.gb|❌|

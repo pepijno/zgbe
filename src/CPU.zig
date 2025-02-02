@@ -193,7 +193,7 @@ fn flagToChar(flag: bool, flag_char: u8) u8 {
     return if (flag) flag_char else '-';
 }
 
-pub fn printState(cpu: *const CPU, bus: *const Bus, writer: anytype) !void {
+pub fn printState(cpu: *const CPU, bus: *const Bus) !void {
     var flags: u8 = 0;
     if (cpu.af.bit8.zero_flag) {
         flags |= (1 << 7);
@@ -207,7 +207,7 @@ pub fn printState(cpu: *const CPU, bus: *const Bus, writer: anytype) !void {
     if (cpu.af.bit8.carry_flag) {
         flags |= (1 << 4);
     }
-    try writer.print("A:{X:0>2} F:{X:0>2} B:{X:0>2} C:{X:0>2} D:{X:0>2} E:{X:0>2} H:{X:0>2} L:{X:0>2} SP:{X:0>4} PC:{X:0>4} PCMEM:{X:0>2},{X:0>2},{X:0>2},{X:0>2} ({s})", .{
+    Writer.writeDebug("A:{X:0>2} F:{X:0>2} B:{X:0>2} C:{X:0>2} D:{X:0>2} E:{X:0>2} H:{X:0>2} L:{X:0>2} SP:{X:0>4} PC:{X:0>4} PCMEM:{X:0>2},{X:0>2},{X:0>2},{X:0>2} ({s})", .{
         cpu.af.bit8.a,
         flags,
         cpu.bc.bit8.b,
@@ -226,7 +226,7 @@ pub fn printState(cpu: *const CPU, bus: *const Bus, writer: anytype) !void {
     });
 
     if (comptime false) {
-        try writer.print(" STACK:{X:0>2},{X:0>2},{X:0>2},{X:0>2} SP:{X:0>2},{X:0>2}", .{
+        Writer.writeDebug(" STACK:{X:0>2},{X:0>2},{X:0>2},{X:0>2} SP:{X:0>2},{X:0>2}", .{
             if (cpu.stack_pointer.bit16 < 0xFFFF) bus.read(cpu.stack_pointer.bit16) else 0,
             if (@as(u32, cpu.stack_pointer.bit16) + 1 < 0xFFFF) bus.read(cpu.stack_pointer.bit16 + 1) else 0,
             if (@as(u32, cpu.stack_pointer.bit16) + 2 < 0xFFFF) bus.read(cpu.stack_pointer.bit16 + 2) else 0,
@@ -236,7 +236,7 @@ pub fn printState(cpu: *const CPU, bus: *const Bus, writer: anytype) !void {
         });
     }
 
-    try writer.print("\n", .{});
+    Writer.writeDebug("\n", .{});
 }
 
 pub fn maybeHandleInterrupts(cpu: *CPU, bus: *Bus) bool {
@@ -337,14 +337,7 @@ pub fn tick(cpu: *CPU, bus: *Bus) void {
         }
     } else {
         if (cpu.instruction_queue.len == 0) {
-            // if (bus.read(cpu.program_counter.bit16) == 0xAF and bus.read(cpu.program_counter.bit16 + 1) == 0xE0) {
-            //     // should_print = true;
-            // }
-            // cpu.printState(bus, Writer.stdout) catch unreachable;
-            // if (should_print) {
-            //     var buffer = [_]u8{0} ** 16;
-            //     _ = std.io.getStdIn().reader().read(&buffer) catch unreachable;
-            // }
+            cpu.printState(bus) catch unreachable;
             const opcode = bus.read(cpu.program_counter.bit16);
             cpu.program_counter.bit16 += 1;
             cpu.instruction_queue = getInstructions(bus, opcode);
